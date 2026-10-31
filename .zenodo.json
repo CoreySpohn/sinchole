@@ -1,0 +1,27 @@
+{
+  "upload_type": "software",
+  "creators": [
+    {
+      "orcid": "0000-0002-3138-0240",
+      "affiliation": "University of Maryland, Baltimore County; NASA Goddard Space Flight Center; CRESST II",
+      "name": "Spohn, Corey"
+    }
+  ],
+  "license": "MIT",
+  "title": "sinchole",
+  "description": "sinchole is an open-source JAX library of certified coronagraph field tables: band-limited complex focal-plane fields read with windowed-sinc kernels that carry error certificates.",
+  "keywords": [
+    "coronagraph",
+    "sinc interpolation",
+    "Habitable Worlds Observatory",
+    "direct imaging",
+    "JAX"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/CoreySpohn/sinchole",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

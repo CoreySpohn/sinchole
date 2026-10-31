@@ -1,0 +1,80 @@
+[build-system]
+requires = ['hatchling', "hatch-fancy-pypi-readme", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sinchole"
+description = "Certified coronagraph field tables in JAX: band-limited complex fields read with windowed-sinc kernels"
+authors = [{ name = "Corey Spohn", email = "corey.a.spohn@nasa.gov" }]
+dynamic = ['readme', 'version']
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["coronagraph", "sinc interpolation", "JAX", "Habitable Worlds Observatory", "direct imaging"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+dependencies = [
+    "equinox>=0.12.0",
+    "hwoutils",
+    "jax>=0.4.1",
+    "jaxlib>=0.4.1",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = ["pre-commit"]
+docs = [
+    "sphinx",
+    "myst-nb",
+    "sphinx-book-theme",
+    "sphinx-autoapi",
+    "sphinx_autodoc_typehints",
+    "sphinxcontrib-mermaid",
+    "ipython",
+    "matplotlib",
+]
+test = ["nox", "pytest", "hypothesis", "pytest-cov"]
+io = ["zarr"]
+
+[project.urls]
+Homepage = "https://github.com/CoreySpohn/sinchole"
+Issues = "https://github.com/CoreySpohn/sinchole/issues"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/sinchole/_version.py"
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[tool.ruff.lint]
+select = ["B", "D", "E", "F", "I", "UP", "RUF"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+# Docs example notebooks are teaching material: x64 config must precede the jax
+# import (E402), and prose-length plotting lines and short names are fine here.
+"docs/examples/*.ipynb" = ["E402", "E501", "E741", "B905", "D"]
+
+[dependency-groups]
+dev = [
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sinchole"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/scripts", "/docs", "/tests", "/.github"]

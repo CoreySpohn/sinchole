@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: sinchole
+abstract: "sinchole is an open-source JAX library of certified coronagraph field tables: band-limited complex focal-plane fields read with windowed-sinc kernels that carry error certificates."
+authors:
+  - family-names: Spohn
+    given-names: Corey
+    orcid: "https://orcid.org/0000-0002-3138-0240"
+    affiliation: "University of Maryland, Baltimore County; NASA Goddard Space Flight Center; CRESST II"
+repository-code: "https://github.com/CoreySpohn/sinchole"
+license: MIT
