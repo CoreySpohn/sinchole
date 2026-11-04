@@ -7,7 +7,7 @@ name = "sinchole"
 description = "Certified coronagraph field tables in JAX: band-limited complex fields read with windowed-sinc kernels"
 authors = [{ name = "Corey Spohn", email = "corey.a.spohn@nasa.gov" }]
 dynamic = ['readme', 'version']
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 keywords = ["coronagraph", "sinc interpolation", "JAX", "Habitable Worlds Observatory", "direct imaging"]
 classifiers = [
