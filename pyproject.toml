@@ -17,13 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = [
-    "equinox>=0.12.0",
-    "hwoutils",
-    "jax>=0.4.1",
-    "jaxlib>=0.4.1",
-    "numpy",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = ["pre-commit"]
@@ -32,13 +26,21 @@ docs = [
     "myst-nb",
     "sphinx-book-theme",
     "sphinx-autoapi",
-    "sphinx_autodoc_typehints",
     "sphinxcontrib-mermaid",
     "ipython",
     "matplotlib",
 ]
-test = ["nox", "pytest", "hypothesis", "pytest-cov"]
-io = ["zarr"]
+test = [
+    "pytest",
+    "hypothesis",
+    "pytest-cov",
+    "pytest-xdist>=3.8.0",
+    "pytest-testmon",
+    "pytest-markdown-docs",
+    "pytest-timeout",
+    "pytest-fail-slow",
+    "hwoutils",
+]
 
 [project.urls]
 Homepage = "https://github.com/CoreySpohn/sinchole"
@@ -68,13 +70,31 @@ convention = "google"
 # import (E402), and prose-length plotting lines and short names are fine here.
 "docs/examples/*.ipynb" = ["E402", "E501", "E741", "B905", "D"]
 
-[dependency-groups]
-dev = [
-    "pytest-xdist>=3.8.0",
-]
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/sinchole"]
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/scripts", "/docs", "/tests", "/.github"]
+
+[tool.pytest.ini_options]
+markers = [
+    "medium: tests with a 30-second default time budget",
+    "slow: tests with a 300-second default time budget, run nightly",
+]
+
+[tool.testbudget]
+library = "sinchole"
+mode = "report"
+unit_s = 5
+medium_s = 30
+slow_s = 300
+
+[tool.deptry]
+known_first_party = ["sinchole"]
+optional_dependencies_dev_groups = ["dev", "docs", "test"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["src/sinchole"]
