@@ -1,5 +1,5 @@
 [build-system]
-requires = ['hatchling', "hatch-fancy-pypi-readme", "hatch-vcs"]
+requires = ['hatchling>=1.26.3', "hatch-fancy-pypi-readme>=24.1.0", "hatch-vcs>=0.4.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -20,26 +20,28 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pre-commit"]
+dev = ["pre-commit>=3.5.0"]
 docs = [
-    "sphinx",
-    "myst-nb",
-    "sphinx-book-theme",
-    "sphinx-autoapi",
-    "sphinxcontrib-mermaid",
-    "ipython",
-    "matplotlib",
+    "sphinx>=7.2.0",
+    "myst-nb>=1.0.0",
+    "sphinx-book-theme>=1.1.0",
+    "sphinx-autoapi>=3.0.0",
+    "sphinxcontrib-mermaid>=0.9",
+    "ipython>=8.18.0",
+    "matplotlib>=3.9.0",
 ]
 test = [
-    "pytest",
-    "hypothesis",
-    "pytest-cov",
+    "pytest>=7.3.2",
+    "hypothesis>=6.79.1",
+    "pytest-cov>=1.0",
+    # The optional budget plugin uses psutil for portable memory sampling.
+    "psutil>=5.9.4",
     "pytest-xdist>=3.8.0",
-    "pytest-testmon",
-    "pytest-markdown-docs",
-    "pytest-timeout",
-    "pytest-fail-slow",
-    "hwoutils",
+    "pytest-testmon>=2.0.7",
+    "pytest-markdown-docs>=0.5.0",
+    "pytest-timeout>=1.3.1",
+    "pytest-fail-slow>=0.1.0",
+    "hwoutils>=1.10.0",
 ]
 
 [project.urls]
