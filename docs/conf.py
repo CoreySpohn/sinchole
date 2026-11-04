@@ -26,7 +26,7 @@ intersphinx_mapping = {
     "jax": ("https://docs.jax.dev/en/latest/", None),
 }
 
-templates_path = ["_templates"]
+templates_path = []
 exclude_patterns = ["_build", ".build", "Thumbs.db", ".DS_Store"]
 
 language = "en"

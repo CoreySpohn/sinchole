@@ -16,7 +16,13 @@ adapter.
 pip install sinchole
 ```
 
-The optional `io` extra adds zarr storage: `pip install 'sinchole[io]'`.
+Check the installed version:
+
+```python
+import sinchole
+
+print(sinchole.__version__)
+```
 
 ## License
 
