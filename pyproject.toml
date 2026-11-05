@@ -33,7 +33,6 @@ docs = [
 test = [
     "pytest>=7.3.2",
     "hypothesis>=6.79.1",
-    "pytest-cov>=1.0",
     # The optional budget plugin uses psutil for portable memory sampling.
     "psutil>=5.9.4",
     "pytest-xdist>=3.8.0",
