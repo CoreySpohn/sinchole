@@ -68,7 +68,8 @@ intersection that the finite candidate list cannot resolve refuses with
 
 ## Quadrant grids
 
-A quadrant grid has origin $(0,0)$, at least 17 nodes per axis, an
+A quadrant grid has origin $(0,0)$, at least 17 nodes per axis (a full signed
+grid needs at least 32 per axis), an
 axis-aligned detector centered at `((nx - 1)/2, (ny - 1)/2)`, the reflection
 kind `two_axis_pixel_flip_v1` and a `MirrorCheckSet` with x-negative,
 y-negative and both-negative counterparts for each product. Negative taps
@@ -77,6 +78,10 @@ for a negative x index and rows reversed for a negative y index.
 
 Admission computes every mirror residual and every stored-axis invariance
 check itself, and caller-supplied `check_passed` flags carry no authority.
+Their local peak is recomputed from the images. The interior checks differ:
+their residual is divided by the `core_peak` the delivery supplies, which
+admission does not recompute, and the residual is recorded without gating
+admission.
 
 The versioned relative tolerance is $10^{-6}$ of the local peak (the largest
 direct pixel value among pixel centers within radius 1 $\lambda_0/D$ of the
@@ -126,8 +131,10 @@ not validated.
 
 ## Memory accounting
 
-`MemoryBudget` ceilings cover native resident samples, admission staging and
-reordering, output leaves and estimated tiled scratch. Admission validates
+`MemoryBudget` has four ceilings in bytes: `max_resident`, `max_output`,
+`max_scratch` and `max_total`. They cover native resident samples, output
+leaves and estimated tiled scratch, and the total also counts the two extra
+native copies that admission stages for reordering. Admission validates
 completeness and duplicates with numerical linear indices and occupancy
 counts, with no source-sized Python containers, and its estimate includes
 coordinate and index casts, residual arrays, linear indices, occupancy,

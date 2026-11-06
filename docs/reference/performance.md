@@ -89,8 +89,10 @@ display(Markdown(
     f"storage and {per(f64['batch_10000'])} with float64 storage, and the yippy blend took "
     f"{per(yp['batch'])} per read. The blend is faster than the sinc read by a factor of "
     f"{1 / ratio:.0f} (float32) or {1 / ratio64:.0f} (float64). The blend reads four 128 by 128 "
-    f"images and shifts each by an FFT phase ramp, about $4\\times10^{5}$ operations per read "
-    f"against $1.7\\times10^{7}$ for the sinc stencil."
+    f"images and shifts each by an FFT phase ramp, about $10^{7}$ operations per read "
+    f"(four padded forward and inverse transforms) against $1.7\\times10^{7}$ for the sinc "
+    f"stencil. The two estimates are of the same order, so the blend's speed comes from the "
+    f"efficiency of FFTs and not from fewer operations."
 ))
 ```
 

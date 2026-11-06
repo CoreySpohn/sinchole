@@ -267,19 +267,21 @@ def truncated(t):
 
 
 for rho in (0.3, 0.5, 0.76, 0.9):
-    print(f"rho = {rho}: worst error {tc.kernel_error(rho, kernel=truncated):.1e} of the amplitude")
+    worst = tc.kernel_error_worst(rho, kernel=truncated)
+    print(f"rho = {rho}: worst single-tone error {worst:.1e} of the amplitude")
 ```
 
 ```{dropdown} Answer
-Near $10^{-2}$: the measured worst case is 0.9 to 1.5 percent of the summed
-cosine amplitudes for every $\rho$ up to 0.76, rising to a few percent near
-the Nyquist limit. The dropped samples begin 16 samples away, where a sinc
+Near $10^{-2}$: the worst single cosine, over every frequency up to the band
+edge and every query offset in a cell, is off by 2 to 5 percent of its
+amplitude for every $\rho$ from 0.3 to 0.76 (see the printed values), and by
+nearly 10 percent at $\rho=0.9$. The dropped samples begin 16 samples away, where a sinc
 weight has magnitude up to $1/(16\pi)\approx0.02$, and their alternating
 contributions do not cancel at the cut. The error is set mostly by that end
 term, not by how slowly the signal varies.
 ```
 
-The cut leaves an error of about one percent however slow the signal is, so
+The cut leaves an error of a few percent however slow the signal is, so
 the weights at the edge of the stencil are the problem. The cure is to taper
 the sinc smoothly to zero there instead of cutting it. Which taper, and how
 close to the Nyquist limit it lets a grid go, is the subject of
@@ -313,7 +315,7 @@ close to the Nyquist limit it lets a grid go, is the subject of
 
 Samples of a band-limited function fix it between them when it is sampled at
 $\rho<1$, the exact reconstruction needs every sample, and cutting it to 32
-samples leaves an error near one percent. The next page tapers the cut and
+samples leaves a worst-case error of a few percent. The next page tapers the cut and
 measures how far toward the Nyquist limit that lets a grid go.
 
 Next: {doc}`../theory/kernel`.

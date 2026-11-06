@@ -183,9 +183,8 @@ for ax, sx in zip(axes, (0.5, 2.0, 4.0)):
 plt.show()
 ```
 
-Every optic after the entrance pupil (the occulting mask, the Lyot stop, the
-detector's pixel response) is fixed and acts linearly on that field, so the
-field at detector point $\mathbf{x}$ is
+Every optic after the entrance pupil (the occulting mask and the Lyot stop) is
+fixed and acts linearly on that field, so the field at detector point $\mathbf{x}$ is
 
 $$
 E(\mathbf{x};\mathbf{s})=\int_P g(\mathbf{x},\mathbf{u})\,
@@ -208,6 +207,9 @@ $$
 The occulter and the Lyot stop do not appear in $B$: they act after the tilt
 and never multiply the field by anything that depends on $\mathbf{s}$. A
 Lyot stop smaller than the pupil changes the brightness, not the bandwidth.
+Pixel integration acts on the intensity, not on the field: it averages the
+detector plane with a fixed footprint and never touches the source position,
+so it leaves the source-frequency band unchanged.
 
 ## A near miss: one source-dependent step breaks the band
 
@@ -243,9 +245,9 @@ varies with the source may not.
 
 ## How does a bandwidth become a node spacing?
 
-The kernel page found that the 32-tap Kaiser-sinc kernel is accurate
-to about $10^{-6}$ when the oversampling factor $\rho=2Bh$ stays at or below
-0.76. For a monochromatic product at $\lambda_0$ ($\sigma_{\max}=1$) and a
+The kernel page measured the 32-tap Kaiser-sinc kernel's worst single-tone
+error at about $2\times10^{-6}$ while the oversampling factor $\rho=2Bh$ stays
+at or below 0.76. For a monochromatic product at $\lambda_0$ ($\sigma_{\max}=1$) and a
 pupil one diameter wide ($L=1$), the bandwidth is 1 cycle per $\lambda_0/D$,
 the Nyquist spacing is 0.5, and the kernel allows $0.76/2=0.38\,\lambda_0/D$.
 A product whose shortest contributing wavelength is $0.9\lambda_0$ has
@@ -263,15 +265,28 @@ why the delivery declares the full illuminated widths along $x$ and $y$.
 The number of nodes follows from the spacing. A quadrant grid that serves
 reads up to, but not including, $R$ along an axis needs
 $\lceil R/h\rceil+16$ nodes, indices 0 through $\lceil R/h\rceil+15$, because
-each read reaches 16 nodes past the start of its own cell. The physicaloptix starter delivery on {doc}`../validation` serves the
-cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ at $h=0.38$, and $27\times31=837$
-nodes are the smallest quadrant rectangle whose stencils cover it.
+each read reaches 16 nodes past the start of its own cell. The physicaloptix
+starter delivery on {doc}`../validation` has $27\times31=837$ nodes at
+$h=0.38$, the smallest quadrant rectangle whose mirrored stencils are complete
+for every $|s|$ below $(4.18, 5.70)$. Reads are therefore supported anywhere in
+that mirrored box. The rehearsal declares only the corner cell
+$3.8\le s_x<4.18$, $5.32\le s_y<5.70$ as its served region, which is also
+where all its checks lie, so reads elsewhere in the box refuse for this
+delivery and would be unqualified if a delivery declared them.
 
 The strip chains the whole rule. Read it left to right: the width of the
 illuminated support fixes the bandwidth, the bandwidth fixes the largest
 admissible spacing, the spacing and the region to serve fix the node count
 per axis, and the node count is the quadrant grid, drawn with the region its
-complete stencils serve.
+complete stencils serve. In the support panel the circle is the illuminated
+pupil and the arrow its width $L$. In the bandwidth panel the triangle is a
+one-dimensional sketch of the pupil's autocorrelation, the function whose
+support sets the frequencies of the intensity, and it reaches zero at $\pm B$.
+In the spacing panel the gray dots sit at the Nyquist spacing and the cyan dots
+at the kernel's spacing, closer by the factor $\rho$. In the node panel cyan
+counts the nodes up to the served edge and gray the 16 nodes of stencil
+margin. In the grid panel the cyan dots are the stored quadrant and the gray box
+is the region whose mirrored stencils are complete.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -285,11 +300,16 @@ viz.plot_spacing_rule(lattice=starter, support_width=1.0, sigma_max=1.0, ax=ax)
 plt.show()
 ```
 
-The chain for the toy and for the public starter delivery is the same: a
-support one diameter wide, $B=1$, spacing 0.38, and $11+16=27$ nodes along
-$x$ to serve up to 4.18 $\lambda_0/D$. The rectangle is 27 wide and 31 tall
-because the served cell reaches 5.70 along $y$. {doc}`../practice/designers`
-turns this chain into the choices a designer makes.
+The chain for the toy and for the plan of the public starter delivery is the
+same: a planning support width $L=1$, $B=1$, spacing 0.38, and $11+16=27$
+nodes along $x$ to give complete stencils up to 4.18 $\lambda_0/D$. The
+rectangle is 27 wide and 31 tall because the stencils reach 5.70 along $y$. The
+label $27\times31$ counts nodes along $x$ and then along $y$, while the code's
+lattice shape is ordered $(n_y, n_x)=(31, 27)$. The plan used $L=1$
+conservatively. The starter's declaration is smaller, 0.946 by 0.982 $D$, so
+its sampling margins are $\rho=0.719$ along $x$ and $0.746$ along $y$, below
+the 0.76 that $L=1$ gives. {doc}`../practice/designers` turns this chain into
+the choices a designer makes.
 
 ## When does the bandwidth bound stop holding?
 
@@ -298,8 +318,8 @@ entrance pupil and passes through optics that do not change with source
 position: fixed masks, stops and deformable mirror settings, a fixed pixel
 response, a fixed mixture of polarizations summed incoherently, and spectral
 weights that do not depend on the source. Pupil shear, field-dependent
-aberrations or source-dependent normalization break it. Within it, the bound
-is exact, but it says nothing about how accurately the delivered images
+aberrations or source-dependent normalization break it. Within it, the band
+limit is exact, but it says nothing about how accurately the delivered images
 represent the real telescope, and sinchole interpolates the model the arrays
 define.
 
@@ -324,8 +344,8 @@ define.
    $h=0.45$ for $L=1$ at $\lambda_0$, what is $\rho$, and what error should a
    read expect?
    ```{dropdown} Hint
-   $\rho=2\times1\times0.45=0.9$, past the cliff, where the measured kernel
-   error is about $3\times10^{-2}$. Admission refuses it with
+   $\rho=2\times1\times0.45=0.9$, past the cliff, where the measured
+   worst-tone error is about 0.14. Admission refuses it with
    `KERNEL_MARGIN_FAIL` ({doc}`../practice/admission` shows exactly this
    case).
    ```
@@ -335,7 +355,8 @@ define.
 A coronagraph's planet intensity at any fixed pixel is band-limited in source
 position with bandwidth $B=\sigma_{\max}L$ cycles per $\lambda_0/D$, so a
 grid at $h\le0.76/(2B)$ (0.38 $\lambda_0/D$ for a monochromatic product and a
-one-diameter pupil) can be read between its nodes to about $10^{-6}$. The
+one-diameter pupil) can be read between its nodes to within about
+$2\times10^{-6}$ per tone. The
 next page halves the cost twice by storing one quadrant and reading the other
 three through symmetry.
 

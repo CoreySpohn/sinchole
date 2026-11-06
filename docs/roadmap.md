@@ -22,8 +22,11 @@ geometry, the declared physical premises, the sampling margin and the memory
 budget, and every read either returns an image with an unknown error bound or
 refuses with a reason. Reads run in JAX on CPU, under `eqx.filter_jit` and
 `jax.vmap`, and yippy can use sinchole as an optional backend for its
-`Coronagraph`. One starter cell of a public LUVOIR-A APLC design has been
-checked end to end ({doc}`validation`).
+`Coronagraph`. The nodes of the starter delivery for a public LUVOIR-A APLC
+design support reads anywhere in a mirrored 4.18 by 5.70 box. The rehearsal
+declares only the corner cell as served, and all 16 checks and 296
+qualification reads lie in that cell, near the inner working angle. Elsewhere
+in the box, reads are supported but unqualified ({doc}`validation`).
 
 ## Next (aspirational): release and broader qualification
 

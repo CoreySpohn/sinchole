@@ -46,10 +46,7 @@ by 180 degrees. Will sinchole admit it? Commit to yes or no, then open the
 answer under step 2.
 ```
 
-The answer is yes, and it is the reason for the one test below that the
-checks cannot supply. Admission tests that the images agree with each other,
-and a consistent error agrees with itself. A delivery is correct when it
-passes the self-check and also places the star where the sky says.
+The prompt returns under step 2, once the detector frame has been fixed.
 
 (recipe-positions)=
 ## Step 1: Which positions do you propagate?
@@ -166,11 +163,8 @@ for source in ((s, 0.0), (0.0, s)):
 ```
 
 On the toy the measured centroids land within 0.1 pixel of the expected
-positions. Now the prompt. The consistent 180 degree rotation commutes with both
-reversals, so a rotated mirror check still compares like with like, and the
-interior reads still agree with their rotated direct images. The cell below
-rotates every image of the toy delivery, nodes and mirror checks together,
-and admits both versions.
+positions. Now the prompt. The cell below rotates every image of the toy
+delivery, nodes and mirror checks together, and admits both versions.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -192,8 +186,13 @@ print(f"expected column c + s / PIXSCALE = {center + 3.04 / toy.pixscale_lod:.2f
 ```
 
 ```{dropdown} Answer to the prediction
-Both versions are admitted, with mirror residuals of order $10^{-14}$ to
+Yes, both versions are admitted, with mirror residuals of order $10^{-14}$ to
 $10^{-16}$ in both cases, so no check in the receipt separates them. The
+consistent 180 degree rotation commutes with both reversals, so a rotated
+mirror check still compares like with like, and the interior reads still agree
+with their rotated direct images. Admission tests that the images agree with
+each other, and a consistent error agrees with itself. A delivery is correct
+when it passes that self-check and also places the star where the sky says. The
 fiducial test does: the core of the $(3.04,0)$ node is at column 60, next to
 the expected 59.66, as propagated, and at column 35, on the opposite side of
 the frame, after the rotation. Run the fiducial test on the delivered files
@@ -278,20 +277,21 @@ tails has no sharp shortest wavelength, so declare it as the wavelength below
 which the weighted flux fraction is less than a stated $\epsilon$, and write
 $\epsilon$ in the optical state beside the filter curve. The library fixes
 no value of $\epsilon$. A component beyond the edge is read at $\rho$ above
-0.76, and its error is at most its weight times the kernel error at that
-$\rho$, which the cell measures on random band-limited signals.
+0.76, and its error is at most its weight times the worst single-tone kernel
+error at that $\rho$, which the cell measures.
 
 ```{code-cell} python
 :tags: [hide-input]
 for rho in (0.76, 0.80, 0.90, 1.00):
-    print(f"rho = {rho:.2f}: kernel error {tc.kernel_error(rho):.1e} of the signal amplitude")
+    worst = tc.kernel_error_worst(rho)
+    print(f"rho = {rho:.2f}: worst single-tone error {worst:.1e}, "
+          f"a 1e-3 flux tail contributes {1e-3 * worst:.0e}")
 ```
 
 Compare that product of weight and error with the $10^{-5}$ interior level
-of step 6. By this estimate a tail carrying $10^{-3}$ of the flux at
-$\rho=0.8$ contributes about $10^{-3}\times1.9\times10^{-4}\approx2\times10^{-7}$,
-below the level, and the same tail at $\rho=1$ contributes about
-$2\times10^{-4}$, above it. The estimate is rough, so let the interior checks
+of step 6. The printed products show that a tail carrying $10^{-3}$ of the
+flux stays below the level at $\rho=0.8$ and rises above it by $\rho=0.9$,
+and at $\rho=1$ the tail contributes its whole weight. The estimate is rough, so let the interior checks
 decide. The per-plane `sampling_min_wavelength_m`
 must not exceed the plane wavelength, and `campaign_sampling_min_m` records a
 single minimum for the whole campaign.
@@ -328,14 +328,16 @@ applies this to the common families.
   - Quadrant if both hold, otherwise full grid
 * - Vortex
   - Each single geometric mirror reverses the charge. Two pupil mirrors make
-    the $+\ell$ and $-\ell$ intensities equal, so both mirrors can hold. One
-    pupil mirror maps the product to the opposite charge
+    the $+\ell$ and $-\ell$ intensities equal, but only for a real pupil and a
+    real stop, because the equality goes through conjugation, which maps $+\ell$
+    to $-\ell$. One pupil mirror maps the product to the opposite charge
   - Quadrant for a two-mirror pupil, full grid otherwise, checked per
     polarization channel
 * - Single-mirror pupil with a complex mask, or a segmented or off-axis pupil
     with no mirror
-  - None gives both mirrors. Conjugation alone gives only the point inversion
-    $I(-x;-s)=I(x;s)$, which version 0.1 does not use
+  - None gives both mirrors. With a complex mask, conjugation fails even for
+    the point inversion $I(-x;-s)=I(x;s)$, as the both-negative residual in the
+    toy cell below shows. Version 0.1 uses neither
   - Full grid
 ```
 

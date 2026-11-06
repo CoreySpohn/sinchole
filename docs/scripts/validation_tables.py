@@ -30,8 +30,20 @@ def sci(value, digits=2):
     return f"${mantissa}\\times10^{{{int(exponent)}}}$"
 
 
-def bin_tables(result, method):
-    """Markdown tables, one per radius bin, of the three metrics for ``method``."""
+BIN_LABELS = {
+    "behind the inner working angle": "Just inside the design inner working angle",
+    "inner working angle to +0.2": "From the design angle to 0.2 above it",
+    "beyond the inner working angle": "Beyond that, up to the largest radius read",
+}
+
+
+def bin_tables(result, method, radii=None):
+    """Markdown tables, one per radius bin, of the three metrics for ``method``.
+
+    ``radii`` lists the source radius of every read. When given, each heading
+    states the smallest and largest radius actually present in the bin, and
+    not the bin edges.
+    """
     names = {
         "local_peak": "error over the local peak",
         "pixel_brightest": "error over each pixel's brightest value",
@@ -39,9 +51,19 @@ def bin_tables(result, method):
     }
     out = []
     for entry in result["bins"]:
-        upper = "" if entry["r_max"] is None else f" to {entry['r_max']:.2f}"
+        if radii is None:
+            upper = "" if entry["r_max"] is None else f" to {entry['r_max']:.2f}"
+            span = f"{entry['r_min']:.2f}{upper}"
+        else:
+            inside = [
+                r
+                for r in radii
+                if r >= entry["r_min"]
+                and (entry["r_max"] is None or r < entry["r_max"])
+            ]
+            span = f"{min(inside):.2f} to {max(inside):.2f}"
         out.append(
-            f"**{entry['name']}** (source radius {entry['r_min']:.2f}{upper} "
+            f"**{BIN_LABELS.get(entry['name'], entry['name'])}** (source radii {span} "
             f"$\\lambda_0/D$, {entry['n']} positions)\n"
         )
         out.append("| Metric | Median | 95th percentile | Worst |")

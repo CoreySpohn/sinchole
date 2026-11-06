@@ -64,11 +64,13 @@ local peak
 : The largest directly propagated pixel value among pixel centers within
   1 $\lambda_0/D$ of the source. Errors are quoted relative to it, so a
   number such as $10^{-6}$ means one millionth of the planet's own brightest
-  pixel.
+  pixel. In the admission interior checks the denominator is the delivered
+  `core_peak`, which admission does not recompute, while the mirror and axis
+  checks recompute theirs from the images.
 
 margin
 : The largest oversampling factor the kernel is admitted at, $\rho=0.76$.
-  Past it the kernel error rises by orders of magnitude, and admission
+  Past it the kernel's worst-tone error rises by orders of magnitude, and admission
   refuses with `KERNEL_MARGIN_FAIL`. See {doc}`../theory/kernel`.
 
 mirror check
@@ -133,8 +135,9 @@ spacing rule
 
 starter grid
 : The public LUVOIR-A APLC delivery of 27 by 31 nodes at spacing 0.38
-  $\lambda_0/D$, serving the cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$.
-  See {doc}`../validation`.
+  $\lambda_0/D$. Its nodes give complete stencils anywhere in the mirrored
+  4.18 by 5.70 box, and it declares only the corner cell
+  $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ as served. See {doc}`../validation`.
 
 stencil
 : The 32 nodes per axis around a query whose samples a read combines, from

@@ -211,12 +211,15 @@ def reader_for(delivery):
 
 
 def kernel_error(rho, kernel=None, trials=40):
-    """Worst reconstruction error of a 32-tap kernel, as a fraction of amplitude.
+    """Typical reconstruction error of a 32-tap kernel on random signals.
 
-    Random band-limited signals (twelve cosines with frequencies up to
-    ``rho / 2`` cycles per sample) are sampled at the integers and rebuilt at
-    random offsets inside one cell. This is the measurement behind the error
-    curves on the kernel and admission pages.
+    This is the largest error over 40 random draws, each a sum of twelve
+    cosines, so it is a typical-signal measurement and not a worst case: use
+    ``kernel_error_worst`` for the worst case over every single tone. The signals
+    are random band-limited sums (twelve cosines with frequencies up to
+    ``rho / 2`` cycles per sample), sampled at the integers and rebuilt at
+    random offsets inside one cell. This is the dashed typical-signal curve
+    on the kernel page.
 
     Args:
         rho: Oversampling factor; Nyquist is 1.
@@ -225,7 +228,7 @@ def kernel_error(rho, kernel=None, trials=40):
         trials: Number of random signals.
 
     Returns:
-        The worst absolute error divided by the signal's total amplitude.
+        The largest absolute error divided by the signal's total amplitude.
     """
     import numpy as np
 
@@ -253,3 +256,42 @@ def kernel_error(rho, kernel=None, trials=40):
             worst, np.max(np.abs(estimate - signal(query))) / np.abs(amps).sum()
         )
     return worst
+
+
+def kernel_error_worst(rho, kernel=None, n_freq=61, n_offset=41):
+    """Worst single-tone reconstruction error of a 32-tap kernel.
+
+    A unit tone at frequency ``f`` cycles per sample is sampled at the
+    integers and rebuilt at an offset ``q`` inside one cell. Maximized over the
+    tone phase, the error is the magnitude of ``sum_k w(q - k) exp(2 pi i f k)
+    - exp(2 pi i f q)``. This returns the maximum of that magnitude over every
+    frequency up to ``rho / 2`` and every offset in one cell, which is the
+    worst case for a signal of unit amplitude in one tone.
+
+    Args:
+        rho: Oversampling factor; Nyquist is 1.
+        kernel: Function of the offset ``q - tap`` in samples; the sinchole
+            Kaiser-sinc weights when omitted.
+        n_freq: Frequencies per sweep, from 0 to ``rho / 2``.
+        n_offset: Offsets per sweep, from 0 to 1 sample.
+
+    Returns:
+        The worst absolute error for a unit-amplitude tone.
+    """
+    import numpy as np
+
+    from sinchole.kernel import weights
+
+    if kernel is None:
+
+        def kernel(t):
+            return np.asarray(weights(jnp.asarray(t)))
+
+    freqs = np.linspace(0.0, rho / 2, n_freq)
+    query = np.linspace(0.0, 1.0, n_offset)
+    taps = np.arange(-15, 17)
+    w = kernel(query[:, None] - taps)
+    tone = np.exp(2j * np.pi * freqs[:, None] * taps)
+    read = tone @ w.T
+    truth = np.exp(2j * np.pi * freqs[:, None] * query)
+    return float(np.max(np.abs(read - truth)))

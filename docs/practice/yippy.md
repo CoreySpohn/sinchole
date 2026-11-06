@@ -1,3 +1,11 @@
+---
+file_format: mystnb
+kernelspec:
+  name: python3
+mystnb:
+  render_markdown_format: myst
+---
+
 # Reading deliveries through yippy
 
 Most users never call sinchole directly. A coronagraph designer delivers a
@@ -54,12 +62,28 @@ delivery either reads with sinchole or raises, and it never falls back.
 
 ## I already have a YIP: keep blend or request a sinc delivery?
 
+```{code-cell} python
+:tags: [remove-cell]
+import sys
+
+sys.path.insert(0, "../scripts")
+from IPython.display import Markdown
+from myst_nb import glue
+from validation_tables import load, sci
+
+v = load("validation.json")
+glue("y_sinc", Markdown(sci(v["worst_check_error_local_peak"])), display=False)
+glue("y_blend", f"{100 * v['blend_worst_error_local_peak']:.0f}", display=False)
+glue("y_n", str(v["independent_checks"]), display=False)
+```
+
 An existing YIP package keeps working through `"blend"` with no change, so
 the question is whether the science needs reads between nodes at a level that
-blend cannot give. On the 16 interior checks of the public starter, the
-sinchole reads sit at $1.4\times10^{-6}$ of the local peak at worst and the
-blend reader on the same checks is off by about 0.2 by the same measure, so the choice matters
-only for work that reads a planet at positions nobody propagated.
+blend cannot give. On the {glue:text}`y_n` interior checks of the public starter, the sinchole
+reads sit at {glue}`y_sinc` of the local peak at worst and the blend
+reader on the same checks is off by {glue:text}`y_blend` percent by the same
+measure, so the choice matters only for work that reads a planet at positions
+nobody propagated.
 
 ```mermaid
 flowchart TD
@@ -88,7 +112,28 @@ products (`stellar_intens.fits` and the others of a YIP package) in
 `legacy_package_path`. A delivery meant for direct `Coronagraph` use must
 therefore include them. The public starter holds none, so it is read through
 yippy's router (`route_interpolation`), which returns the sinc backend
-without them, and `yippy-sinc validate` checks its files either way.
+without them, and `yippy-sinc validate` checks its files either way. The
+example below is not executed on this page, because the starter's release
+asset is not published yet, and it follows the quickstart on yippy's schema
+page.
+
+```python
+import jax
+
+from yippy.datasets import fetch_sinc_starter
+from yippy.sinc_routing import route_interpolation
+
+jax.config.update("jax_enable_x64", True)
+
+path = fetch_sinc_starter()
+_, backend, info = route_interpolation(path, "sinc", None, None)
+psf = backend.create_psf(3.9425, 5.415)      # inside the declared corner cell
+print(info.effective)                          # "sinc"
+```
+
+The position lies in the corner cell that the starter declares as served. A
+position outside that cell is refused for this delivery, although the stored
+nodes could support it ({doc}`../validation`).
 
 ## Options
 

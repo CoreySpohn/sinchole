@@ -136,8 +136,11 @@ Support
   declared, or 2, externally established, which version 0.1 does not support
   from a delivery) and a source identifier. A premise
   with unknown evidence refuses admission with `METADATA_MISSING`, and a
-  premise declared false refuses with the matching reason. The reader never
-  assumes one.
+  premise declared false refuses with the matching reason: premises 1 to 4
+  (the tilt, the linear optics, the registration and the pixel response)
+  with `FRAME_UNSUPPORTED`, premise 5 with `NORMALIZATION_UNSUPPORTED` and
+  premise 6 with `METADATA_CONFLICT`. Through yippy, a false premise raises a
+  parse error before admission is reached. The reader never assumes one.
 
 Identities
 : `optical_id`, `spectral_weight_id` and `identity` name the optical state,
@@ -159,8 +162,9 @@ Identities
 
 `CheckSet` (optional)
 : Independent images at interior positions between nodes. Admission reads the
-  grid at each and records the residual relative to the local peak as
-  empirical evidence, never as a bound.
+  grid at each and records the residual relative to the delivered
+  `core_peak` as empirical evidence, never as a bound. The `core_peak` is the
+  delivery's own number and admission does not recompute it.
 
 `Domain`
 : Where reads are permitted: a box or an origin-centered annulus, closed or
@@ -168,9 +172,10 @@ Identities
   where its whole stencil exists.
 
 `MemoryBudget`
-: Ceilings, in bytes, for resident samples, admission staging, outputs and
-  read scratch. Admission refuses with `MEMORY_LIMIT` before allocating if an
-  estimate exceeds a ceiling.
+: Four ceilings, in bytes: `max_resident`, `max_output`, `max_scratch` and
+  `max_total`. The total also counts the staging copies admission makes.
+  Admission refuses with `MEMORY_LIMIT` before allocating if an estimate
+  exceeds a ceiling.
 
 `provenance` (keyword)
 : Optional `(key, text)` pairs, such as the full text of the symmetry

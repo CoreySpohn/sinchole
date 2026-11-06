@@ -165,192 +165,195 @@
     }
   },
   "band": {
-    "declared_half_band": 1.0,
+    "declared_half_band": {
+      "x": 0.946,
+      "y": 0.982
+    },
     "window": "Kaiser beta 20",
     "lines": {
       "x": {
-        "declared_support_D": 0.982,
-        "guard_lobe_halfwidth": 0.08046773994231678,
-        "pixels": [
-          {
-            "ix": 78,
-            "iy": 114,
-            "out_of_band_rms_fraction": 6.472795531863797e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 2.0319627341523425,
-            "predicted_read_error_over_sup": 8.92007770825696e-07,
-            "sup_over_brightest": 0.016923894274565362,
-            "sup_nodes_over_sup": 1.0
-          },
-          {
-            "ix": 79,
-            "iy": 114,
-            "out_of_band_rms_fraction": 5.606335624536259e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 2.010843298511083,
-            "predicted_read_error_over_sup": 8.789022734131921e-07,
-            "sup_over_brightest": 0.015626715236472598,
-            "sup_nodes_over_sup": 0.9929924430664816
-          },
-          {
-            "ix": 80,
-            "iy": 114,
-            "out_of_band_rms_fraction": 4.752135627371705e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 2.0039675189886497,
-            "predicted_read_error_over_sup": 8.777005083752743e-07,
-            "sup_over_brightest": 0.015516417463403164,
-            "sup_nodes_over_sup": 0.9808490297127436
-          },
-          {
-            "ix": 77,
-            "iy": 114,
-            "out_of_band_rms_fraction": 8.025856960367215e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 2.0588899907662306,
-            "predicted_read_error_over_sup": 8.963477362457132e-07,
-            "sup_over_brightest": 0.015525913237865166,
-            "sup_nodes_over_sup": 0.9725940954286663
-          },
-          {
-            "ix": 79,
-            "iy": 120,
-            "out_of_band_rms_fraction": 1.0845460115194714e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 1.4951950300109058,
-            "predicted_read_error_over_sup": 6.814980431796424e-07,
-            "sup_over_brightest": 0.12085512816998654,
-            "sup_nodes_over_sup": 0.9772937046305619
-          },
-          {
-            "ix": 78,
-            "iy": 120,
-            "out_of_band_rms_fraction": 1.6895428552995276e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 1.5060604815624945,
-            "predicted_read_error_over_sup": 6.851990532753219e-07,
-            "sup_over_brightest": 0.11840867853420224,
-            "sup_nodes_over_sup": 0.9907758159978759
-          },
-          {
-            "ix": 80,
-            "iy": 120,
-            "out_of_band_rms_fraction": 4.3937228028417043e-10,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 1.486161857823028,
-            "predicted_read_error_over_sup": 6.816205396493061e-07,
-            "sup_over_brightest": 0.12135092851994682,
-            "sup_nodes_over_sup": 1.0
-          },
-          {
-            "ix": 79,
-            "iy": 115,
-            "out_of_band_rms_fraction": 4.051057922976799e-09,
-            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
-            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
-            "wiener_norm_over_sup": 1.6890582064553699,
-            "predicted_read_error_over_sup": 7.342351081267731e-07,
-            "sup_over_brightest": 0.022857396307916635,
-            "sup_nodes_over_sup": 0.9783891488300036
-          }
-        ]
-      },
-      "y": {
         "declared_support_D": 0.946,
         "guard_lobe_halfwidth": 0.08046773994231678,
         "pixels": [
           {
             "ix": 78,
             "iy": 114,
-            "out_of_band_rms_fraction": 2.1153397424279247e-13,
+            "out_of_band_rms_fraction": 6.7320417488411386e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 2.0319627341523425,
+            "predicted_read_error_over_sup": 8.859077663842205e-07,
+            "sup_over_brightest": 0.016923894274565362,
+            "sup_nodes_over_sup": 1.0
+          },
+          {
+            "ix": 79,
+            "iy": 114,
+            "out_of_band_rms_fraction": 5.692158386283223e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 2.010843298511083,
+            "predicted_read_error_over_sup": 8.729775100740564e-07,
+            "sup_over_brightest": 0.015626715236472598,
+            "sup_nodes_over_sup": 0.9929924430664816
+          },
+          {
+            "ix": 80,
+            "iy": 114,
+            "out_of_band_rms_fraction": 4.79212881726539e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 2.0039675189886497,
+            "predicted_read_error_over_sup": 8.710587161677287e-07,
+            "sup_over_brightest": 0.015516417463403164,
+            "sup_nodes_over_sup": 0.9808490297127436
+          },
+          {
+            "ix": 77,
+            "iy": 114,
+            "out_of_band_rms_fraction": 8.438074244226187e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 2.0588899907662306,
+            "predicted_read_error_over_sup": 8.88511717382862e-07,
+            "sup_over_brightest": 0.015525913237865166,
+            "sup_nodes_over_sup": 0.9725940954286663
+          },
+          {
+            "ix": 79,
+            "iy": 120,
+            "out_of_band_rms_fraction": 1.1418315817028603e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 1.4951950300109058,
+            "predicted_read_error_over_sup": 6.811557804406042e-07,
+            "sup_over_brightest": 0.12085512816998654,
+            "sup_nodes_over_sup": 0.9772937046305619
+          },
+          {
+            "ix": 78,
+            "iy": 120,
+            "out_of_band_rms_fraction": 1.8157539699143454e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 1.5060604815624945,
+            "predicted_read_error_over_sup": 6.843070366988374e-07,
+            "sup_over_brightest": 0.11840867853420224,
+            "sup_nodes_over_sup": 0.9907758159978759
+          },
+          {
+            "ix": 80,
+            "iy": 120,
+            "out_of_band_rms_fraction": 4.6333370234248345e-10,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 1.486161857823028,
+            "predicted_read_error_over_sup": 6.809996602813468e-07,
+            "sup_over_brightest": 0.12135092851994682,
+            "sup_nodes_over_sup": 1.0
+          },
+          {
+            "ix": 79,
+            "iy": 115,
+            "out_of_band_rms_fraction": 4.134320276910492e-09,
+            "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
+            "highest_frequency_above_1e8_of_peak": 0.9864518948617093,
+            "wiener_norm_over_sup": 1.6890582064553699,
+            "predicted_read_error_over_sup": 7.299666852325575e-07,
+            "sup_over_brightest": 0.022857396307916635,
+            "sup_nodes_over_sup": 0.9783891488300036
+          }
+        ]
+      },
+      "y": {
+        "declared_support_D": 0.982,
+        "guard_lobe_halfwidth": 0.08046773994231678,
+        "pixels": [
+          {
+            "ix": 78,
+            "iy": 114,
+            "out_of_band_rms_fraction": 2.1390098186500213e-13,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.016111323555715,
-            "predicted_read_error_over_sup": 4.801872876932356e-07,
+            "predicted_read_error_over_sup": 4.801871836390114e-07,
             "sup_over_brightest": 29.421658518679383,
             "sup_nodes_over_sup": 0.9432070010154897
           },
           {
             "ix": 79,
             "iy": 114,
-            "out_of_band_rms_fraction": 2.229502093317178e-13,
+            "out_of_band_rms_fraction": 2.254959570814295e-13,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.016286721171823,
-            "predicted_read_error_over_sup": 4.769730603812833e-07,
+            "predicted_read_error_over_sup": 4.769729468928736e-07,
             "sup_over_brightest": 32.81324281754847,
             "sup_nodes_over_sup": 0.9448766793116896
           },
           {
             "ix": 80,
             "iy": 114,
-            "out_of_band_rms_fraction": 2.301689091623352e-13,
+            "out_of_band_rms_fraction": 2.32918091592511e-13,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.0162260242723808,
-            "predicted_read_error_over_sup": 4.779057366541568e-07,
+            "predicted_read_error_over_sup": 4.779056218101717e-07,
             "sup_over_brightest": 30.917631343658268,
             "sup_nodes_over_sup": 0.944286147730267
           },
           {
             "ix": 77,
             "iy": 114,
-            "out_of_band_rms_fraction": 1.9059135626546985e-13,
+            "out_of_band_rms_fraction": 1.9267416584320201e-13,
             "highest_frequency_above_1e6_of_peak": 0.9864518948617093,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.0157546561292872,
-            "predicted_read_error_over_sup": 4.894583145900968e-07,
+            "predicted_read_error_over_sup": 4.894582231309064e-07,
             "sup_over_brightest": 16.953416708698768,
             "sup_nodes_over_sup": 0.938470825961849
           },
           {
             "ix": 79,
             "iy": 120,
-            "out_of_band_rms_fraction": 6.762694038902151e-14,
+            "out_of_band_rms_fraction": 6.879505542908835e-14,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.017759182618441,
-            "predicted_read_error_over_sup": 4.776349025105428e-07,
+            "predicted_read_error_over_sup": 4.776348490307346e-07,
             "sup_over_brightest": 295.58876575987193,
             "sup_nodes_over_sup": 0.9577319049793744
           },
           {
             "ix": 78,
             "iy": 120,
-            "out_of_band_rms_fraction": 8.156682415543884e-14,
+            "out_of_band_rms_fraction": 8.290454802358946e-14,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.017639678436973,
-            "predicted_read_error_over_sup": 4.808688660052571e-07,
+            "predicted_read_error_over_sup": 4.808687966442371e-07,
             "sup_over_brightest": 239.95241476385354,
             "sup_nodes_over_sup": 0.9564452495193742
           },
           {
             "ix": 80,
             "iy": 120,
-            "out_of_band_rms_fraction": 6.858390936716326e-14,
+            "out_of_band_rms_fraction": 6.983306959216095e-14,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.0177064098241504,
-            "predicted_read_error_over_sup": 4.785821168315066e-07,
+            "predicted_read_error_over_sup": 4.785820624939607e-07,
             "sup_over_brightest": 280.00821999672496,
             "sup_nodes_over_sup": 0.9572744951091844
           },
           {
             "ix": 79,
             "iy": 115,
-            "out_of_band_rms_fraction": 1.1881683997274937e-13,
+            "out_of_band_rms_fraction": 1.2046761014454277e-13,
             "highest_frequency_above_1e6_of_peak": 0.9739651620153585,
             "highest_frequency_above_1e8_of_peak": 1.0114253605544108,
             "wiener_norm_over_sup": 1.0198063606982593,
-            "predicted_read_error_over_sup": 4.78629807255975e-07,
+            "predicted_read_error_over_sup": 4.786297134552995e-07,
             "sup_over_brightest": 40.436865811583964,
             "sup_nodes_over_sup": 0.9993635198826177
           }
@@ -475,7 +478,15 @@
           124,
           84
         ],
-        "pixel_peak_over_brightest_at_worst_pixel": 2605.8101554809787
+        "pixel_peak_over_brightest_at_worst_pixel": 2605.8101554809787,
+        "worst_pixel_error_over_brightest": 5.90027034822301e-06,
+        "worst_pixel_error_over_pixel_peak": 2.2642748305407316e-09,
+        "worst_pixel_query_position_lod": 4.085,
+        "worst_pixel_peak_position_lod": 15.105,
+        "scanned_line_extent_lod": 39.995,
+        "stored_lattice_extent_lod": 9.88,
+        "peak_inside_stored_lattice": false,
+        "worst_error_over_pixel_peak_all_pixels_all_queries": 5.169882729877065e-07
       },
       "y": {
         "source_position_lod": [
@@ -626,7 +637,15 @@
           79,
           114
         ],
-        "pixel_peak_over_brightest_at_worst_pixel": 32.81324281754847
+        "pixel_peak_over_brightest_at_worst_pixel": 32.81324281754847,
+        "worst_pixel_error_over_brightest": 6.336093557566406e-06,
+        "worst_pixel_error_over_pixel_peak": 1.9309562278854908e-07,
+        "worst_pixel_query_position_lod": 5.605,
+        "worst_pixel_peak_position_lod": 12.635,
+        "scanned_line_extent_lod": 39.995,
+        "stored_lattice_extent_lod": 11.4,
+        "peak_inside_stored_lattice": false,
+        "worst_error_over_pixel_peak_all_pixels_all_queries": 5.891176558282183e-07
       }
     }
   },

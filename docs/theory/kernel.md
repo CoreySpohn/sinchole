@@ -2,16 +2,18 @@
 file_format: mystnb
 kernelspec:
   name: python3
+mystnb:
+  render_markdown_format: myst
 ---
 
 # How close to the Nyquist limit can a 32-tap kernel go?
 
-Cutting the ideal sinc at 32 samples leaves an error near one percent, and a
-planet photometry budget cannot spend that much on filling the gaps of a
-grid. The sinchole library promises about one part in a million. This page
-asks what the kernel does to earn that promise, how far toward the Nyquist
-limit a grid may go before the promise breaks, and what one read costs when
-the grid has two axes.
+Cutting the ideal sinc at 32 samples leaves an error of several percent in
+the worst case, and a planet photometry budget cannot spend that much on
+filling the gaps of a grid. The sinchole kernel measures about two parts in a
+million for the worst single tone. This page asks what the kernel does to earn
+that number, how far toward the Nyquist limit a grid may go before the number
+fails, and what one read costs when the grid has two axes.
 
 :::{admonition} Definitions
 :class: note
@@ -25,6 +27,11 @@ the grid has two axes.
   two one-dimensional weights.
 - **Margin.** The largest oversampling factor the kernel is admitted at,
   $\rho=0.76$.
+- **Worst tone.** The largest error over every single cosine up to the band
+  edge and every query offset inside one cell, for a signal of unit amplitude.
+- **Typical signal.** The largest error over 40 random sums of 12 cosines,
+  which sits below the worst tone because the random amplitudes rarely line
+  up.
 :::
 
 ```{code-cell} python
@@ -51,17 +58,19 @@ Tapering multiplies the sinc by a smooth window that falls to zero at the
 edge of the stencil, so nothing jumps where the formula is cut. The same
 test as on the foundations page applies: random band-limited signals,
 sampled at the integers and rebuilt at random offsets, with the worst error
-measured as a fraction of the signal's total amplitude.
+measured as a fraction of the signal's total amplitude. Here and below the
+worst case is a single cosine, maximized over its frequency and over the
+query offset, because a sum of tones can only reach the sum of their errors.
 
 ```{admonition} Predict before reading on
 :class: tip
 With the Kaiser taper in place and the signal at $\rho=0.5$, is the worst
-error near $10^{-3}$, $10^{-5}$ or $10^{-7}$ of the amplitude?
+error near $10^{-2}$, $10^{-4}$ or $10^{-6}$ of the amplitude?
 ```
 
 ```{dropdown} Answer
-Near $10^{-7}$: about $4\times10^{-7}$, four orders of magnitude below the
-cut sinc at the same $\rho$. The window leaves the central lobes nearly
+Near $10^{-6}$: {glue}`k_w05`, four orders of magnitude below the
+cut sinc at the same $\rho$ ({glue}`k_t05`). The window leaves the central lobes nearly
 untouched and drives the far weights smoothly to zero.
 ```
 
@@ -76,10 +85,12 @@ and is zero otherwise. In words: the window is one at the center and falls
 to $1/I_0(\beta)$ at the edge, so the weights near the query are almost the
 sinc's own and the weights near $t=\pm16$ are nearly zero.
 
-## The error holds below 7e-7 until a cliff at the margin
+## Does the worst-tone error stay flat until a cliff at the margin?
 
 The left panel draws the kernel against the ideal sinc. The right panel
-measures the worst error against $\rho$ for the cut sinc and for the kernel.
+measures the worst-tone error against $\rho$ for the cut sinc (gray) and for
+the kernel (solid cyan), with the typical random-signal error for the kernel
+as a dashed line.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -88,9 +99,10 @@ def truncated(t):
     return np.where(np.abs(t) < 16, np.sinc(t), 0.0)
 
 
-rhos = np.array([0.3, 0.4, 0.5, 0.6, 0.7, 0.76, 0.8, 0.85, 0.9, 0.95])
-err_kaiser = np.array([tc.kernel_error(r) for r in rhos])
-err_trunc = np.array([tc.kernel_error(r, kernel=truncated) for r in rhos])
+rhos = np.array([0.3, 0.4, 0.5, 0.6, 0.7, 0.76, 0.8, 0.85, 0.9, 0.95, 1.0])
+err_kaiser = np.array([tc.kernel_error_worst(r) for r in rhos])
+err_trunc = np.array([tc.kernel_error_worst(r, kernel=truncated) for r in rhos])
+err_typical = np.array([tc.kernel_error(r) for r in rhos])
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9, 3.1), constrained_layout=True)
 viz.plot_kernel(ax=left)
@@ -100,39 +112,68 @@ left.annotate("ideal sinc", (13.5, 0.03), (8, -0.17), color=ep.style.neutral(0.6
               fontsize=9, arrowprops={"arrowstyle": "-", "color": ep.style.neutral(0.5),
                                       "lw": 0.8})
 right.semilogy(rhos, err_trunc, "o-", color=ep.style.neutral(0.55), lw=1.5)
+right.semilogy(rhos, err_typical, "--", color=pal.cyan, lw=1.2, alpha=0.7)
 right.semilogy(rhos, err_kaiser, "o-", color=pal.cyan, lw=2)
 right.axvline(0.76, color=ep.style.neutral(0.35), lw=1, ls="--")
 right.axvline(1.0, color=ep.style.neutral(0.35), lw=1)
 right.text(0.765, 3e-1, "0.76", color=ep.style.neutral(0.6), fontsize=9)
 right.text(0.985, 3e-1, "Nyquist", color=ep.style.neutral(0.6), fontsize=9, ha="right")
-right.text(0.32, 2.5e-2, "truncated sinc", color=ep.style.neutral(0.65), fontsize=9)
-right.text(0.32, 1.5e-6, "Kaiser-sinc", color=pal.cyan, fontsize=9)
+right.text(0.32, 6e-2, "truncated sinc, worst tone", color=ep.style.neutral(0.65), fontsize=9)
+right.text(0.32, 3.5e-6, "Kaiser-sinc, worst tone", color=pal.cyan, fontsize=9)
+right.text(0.32, 1.2e-7, "typical random signal", color=pal.cyan, fontsize=8, alpha=0.8)
 right.set_xlabel(r"oversampling factor $\rho$")
-right.set_ylabel("worst error / total amplitude")
+right.set_ylabel("error / tone amplitude")
 right.set_ylim(1e-8, 1)
 plt.show()
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
-glue_floor = err_kaiser[rhos <= 0.76].max()
-glue_08 = err_kaiser[rhos == 0.8][0]
-glue_09 = err_kaiser[rhos == 0.9][0]
-print(f"{glue_floor:.1e} {glue_08:.1e} {glue_09:.1e}")
+from IPython.display import Markdown
+from myst_nb import glue
+
+
+def tex(value):
+    """Format a number as a LaTeX power of ten."""
+    mantissa, exponent = f"{value:.1e}".split("e")
+    return Markdown(rf"${mantissa}\times10^{{{int(exponent)}}}$")
+
+
+def at(rho, values):
+    return values[np.isclose(rhos, rho)][0]
+
+
+in_margin = rhos <= 0.76
+glue("k_floor", tex(err_kaiser[in_margin].max()), display=False)
+glue("k_typ_floor", tex(err_typical[in_margin].max()), display=False)
+glue("k_w05", tex(at(0.5, err_kaiser)), display=False)
+glue("k_t05", tex(at(0.5, err_trunc)), display=False)
+glue("k_w08", tex(at(0.8, err_kaiser)), display=False)
+glue("k_w09", tex(at(0.9, err_kaiser)), display=False)
+glue("k_w10", f"{at(1.0, err_kaiser):.2f}", display=False)
+glue("k_typ10", f"{at(1.0, err_typical):.2f}", display=False)
+glue("k_trunc_lo", tex(err_trunc[in_margin].min()), display=False)
+glue("k_trunc_hi", tex(err_trunc[in_margin].max()), display=False)
+glue("k_trunc_lo_pct", f"{100 * err_trunc[in_margin].min():.0f}", display=False)
+glue("k_trunc_hi_pct", f"{100 * err_trunc[in_margin].max():.0f}", display=False)
 ```
 
-The kernel (cyan) holds the error below about $7\times10^{-7}$ of the
-signal's total amplitude for every $\rho$ up to 0.76, then falls off a cliff:
-$2\times10^{-4}$ at $\rho=0.8$ and $3\times10^{-2}$ at $\rho=0.9$. The cut
-sinc (gray) stays between about 1 and 4 percent across the whole range. The
-sinchole reader therefore admits a grid only when $\rho\le0.76$ on every
-axis, and treats $\rho\ge1$ as a separate, harder failure. This is the
-margin, and every later page uses it.
+The kernel (solid cyan) holds the worst-tone error below
+{glue}`k_floor` of the tone amplitude for every $\rho$ up to 0.76, then
+falls off a cliff: {glue}`k_w08` at $\rho=0.8$,
+{glue}`k_w09` at $\rho=0.9$ and {glue:text}`k_w10` (the whole
+amplitude) at $\rho=1$. The dashed typical-signal curve sits lower, at
+{glue}`k_typ_floor` or less in the margin, because random amplitudes
+rarely line up, and it is not a bound. The cut sinc (gray) runs from
+{glue:text}`k_trunc_lo_pct` to {glue:text}`k_trunc_hi_pct` percent inside the
+margin. The sinchole reader therefore admits a grid only when
+$\rho\le0.76$ on every axis, and treats $\rho\ge1$ as a separate, harder
+failure. This is the margin, and every later page uses it.
 
-A back-of-envelope estimate predicts both numbers: Kaiser's window design
-rules give a floor near $1.3\times10^{-6}$ for $\beta=12$ and, for a 32-tap
-kernel, an accurate response up to about 0.38 cycles per sample, which is
-$\rho\approx0.75$.
+A back-of-envelope estimate predicts both features: Kaiser's window design
+rules give a floor near $1.3\times10^{-6}$ for $\beta=12$, within a factor of
+two of the measured worst tone, and, for a 32-tap kernel, an accurate response
+up to about 0.38 cycles per sample, which is $\rho\approx0.75$.
 
 ```{dropdown} The estimate, worked out
 Kaiser's first rule relates the shape parameter to the rejection the window
@@ -150,7 +191,10 @@ Processing*, section 7.6). They apply here because interpolation at a
 fractional offset is filtering with a shifted kernel: the passband ripple
 $\delta\approx10^{-A/20}$ is both the error on in-band frequencies and the
 leakage of the spectral images at $1-f$ that sampling creates. The rules are
-approximations, and the measured curve above is the evidence.
+approximations, and the measured curve above is the evidence. The quantity
+$\rho=2Bh$ used here is the same as $\rho=2f_{\max}$ on the previous page,
+because $B$ is the highest frequency in cycles per source unit and $h$ is the
+spacing in the same source units.
 ```
 
 ## A two-dimensional read adds 1024 weighted samples
@@ -277,11 +321,13 @@ Suppose a function of source position contains no frequency above $B=1$
 cycle per unit, the case the next page derives for a coronagraph with an
 entrance pupil one diameter wide. The Nyquist spacing is $1/(2B)=0.5$, and
 the margin rule $2Bh\le0.76$ gives $h\le0.38$. A grid at that spacing, read
-with the kernel, reproduces such a function to about one part in $10^6$ of
-its amplitude, while a grid at the Nyquist spacing of 0.5 would sit past the
-cliff, with errors near 20 percent.
+with the kernel, is expected to reproduce such a function to within
+{glue}`k_floor` of the amplitude per tone, while a grid at the Nyquist
+spacing of 0.5 sits at $\rho=1$, where the worst tone is off by
+{glue:text}`k_w10` of its amplitude and the typical random signal by about
+{glue:text}`k_typ10`.
 
-The guarantee assumes the function really is band-limited, that the grid is
+The measured error assumes the function really is band-limited, that the grid is
 regular and complete, and that the query is at least 15 samples above the
 first node and more than 15 samples below the last, so that its whole
 stencil exists. Break the first and the error is no longer controlled. If you
@@ -319,9 +365,9 @@ break the others, the library refuses the read.
 
 ## What this page established
 
-A 32-tap Kaiser-sinc kernel reconstructs a band-limited function to about
-$10^{-6}$ when $\rho\le0.76$, and the error grows by orders of magnitude just
-past that margin. A read on a two-dimensional grid adds 1024 taps whose signs alternate,
+A 32-tap Kaiser-sinc kernel reconstructs a band-limited tone to within about
+$2\times10^{-6}$ when $\rho\le0.76$, and the worst-tone error grows by
+orders of magnitude just past that margin. A read on a two-dimensional grid adds 1024 taps whose signs alternate,
 so it settles only after a few hundred of them. The next page asks the question this leaves
 open for a coronagraph: what is the highest frequency in a planet image as
 the planet moves, and so what spacing does a grid need?

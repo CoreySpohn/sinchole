@@ -2,6 +2,8 @@
 file_format: mystnb
 kernelspec:
   name: python3
+mystnb:
+  render_markdown_format: myst
 ---
 
 # What does a refusal protect you from?
@@ -30,6 +32,19 @@ pal = hwostyle.palette
 
 import sinchole as sc
 import toy_coronagraph as tc
+from IPython.display import Markdown
+from myst_nb import glue
+
+
+def tex_str(value):
+    """Format a number as a LaTeX power of ten."""
+    mantissa, exponent = f"{value:.1e}".split("e")
+    return rf"${mantissa}\times10^{{{int(exponent)}}}$"
+
+
+def tex(value):
+    """Return the power of ten as a Markdown display object."""
+    return Markdown(tex_str(value))
 ```
 
 ## Does a slightly coarser grid cost a slightly larger error?
@@ -40,12 +55,12 @@ designer saves propagations by coarsening it to 0.45, which is $\rho=0.90$.
 
 ```{admonition} Predict before reading on
 :class: tip
-By what factor does the kernel's worst error grow when the spacing goes from
-0.38 to 0.45: about 2, about 100 or about 50,000?
+By what factor does the kernel's worst-tone error grow when the spacing goes
+from 0.38 to 0.45: about 2, about 100 or about 60,000?
 ```
 
 The animation sweeps the spacing from $\rho=0.5$ to the Nyquist limit at 1.
-The curve is the kernel's measured worst error from the kernel page, drawn
+The curve is the kernel's measured worst-tone error from the kernel page, drawn
 as the spacing grows. The verdict is the answer of `admit_grid`, run on a
 real toy delivery at each spacing.
 
@@ -60,7 +75,7 @@ real toy delivery at each spacing.
 # show a threshold, which the still below provides for the static record.
 rho_frames = np.unique(np.concatenate([np.arange(0.5, 1.0001, 0.0125), [0.76]]).round(4))
 spacings = rho_frames / 2
-errors = np.array([tc.kernel_error(r) for r in rho_frames])
+errors = np.array([tc.kernel_error_worst(r) for r in rho_frames])
 verdicts = []
 for h in spacings:
     delivery_h = tc.quadrant_delivery(spacing=float(h), nodes=17, domain_half=1.0)
@@ -74,7 +89,7 @@ ax.set_yscale("log")
 ax.set_xlim(0.5, 1.03)
 ax.set_ylim(1e-8, 3)
 ax.set_xlabel(r"oversampling factor $\rho = 2Bh$ (spacing $h = \rho / 2$)")
-ax.set_ylabel("kernel worst error / amplitude")
+ax.set_ylabel("kernel worst-tone error / amplitude")
 ep.plot.ref_line(ax, 0.76, "margin 0.76", orient="v", where="end")
 ep.plot.ref_line(ax, 1.0, "Nyquist 1", orient="v", where="end")
 ep.motion.carried_tag(ax, r"kernel error against $\rho$", corner="upper left")
@@ -108,21 +123,26 @@ ax.semilogy(rho_frames, errors, color=pal.cyan, lw=2)
 ax.set_xlim(0.5, 1.03)
 ax.set_ylim(1e-8, 3)
 ax.set_xlabel(r"oversampling factor $\rho = 2Bh$ (spacing $h = \rho / 2$)")
-ax.set_ylabel("kernel worst error / amplitude")
+ax.set_ylabel("kernel worst-tone error / amplitude")
 ep.plot.ref_line(ax, 0.76, "margin 0.76", orient="v", where="end")
 ep.plot.ref_line(ax, 1.0, "Nyquist 1", orient="v", where="end")
 before, after = errors[rho_frames == 0.76][0], errors[rho_frames == 0.9][0]
-ax.annotate(f"{before:.0e}", (0.76, before), (0.6, before * 0.2), color=pal.cyan,
+ax.annotate(tex_str(before), (0.76, before), (0.6, before * 0.2), color=pal.cyan,
             arrowprops={"arrowstyle": "-", "color": pal.cyan, "lw": 0.8})
-ax.annotate(f"{after:.0e} at 0.90", (0.9, after), (0.8, after * 25), color=pal.cyan,
+ax.annotate(tex_str(after) + " at 0.90", (0.9, after), (0.8, after * 25), color=pal.cyan,
             arrowprops={"arrowstyle": "-", "color": pal.cyan, "lw": 0.8})
 plt.show()
-print(f"error growth from 0.76 to 0.90: {after / before:.0f}x")
+print(f"error growth from rho 0.76 to 0.90: {after / before:.0f}x")
+growth = errors[rho_frames == 0.9][0] / errors[rho_frames == 0.76][0]
+glue("a_before", tex(before), display=False)
+glue("a_after", tex(after), display=False)
+glue("a_growth", tex(growth), display=False)
 ```
 
 ```{dropdown} Answer
-About 50,000. At 0.38 the worst error is $6\times10^{-7}$ of the amplitude,
-and at 0.45 it is $3\times10^{-2}$, a factor near $5\times10^4$. The still
+About 60,000. At 0.38 the worst-tone error is {glue}`a_before` of the
+amplitude, and at 0.45 it is {glue}`a_after`, a factor near
+{glue}`a_growth`. The still
 marks the cliff: admission flips from admitted to `KERNEL_MARGIN_FAIL` at
 $\rho=0.76$, just past where the error leaves its floor, and adds
 `NYQUIST_FAIL` at $\rho=1$.
@@ -145,14 +165,15 @@ refuses with a reason that names the fix.
 | `GRID_NONUNIFORM` | Offsets disagree with the declared lattice beyond four ULPs | Check the coordinate conversion, or pass `offset_original_dtype` |
 | `SYMMETRY_CHECK_FAILED` | A mirror or axis residual exceeds $10^{-6}$ of its local peak | The optics are not mirror symmetric at that level, so deliver a full signed grid |
 | `SYMMETRY_CHECK_MISSING` | A quadrant grid lacks one of the three negative counterparts | Propagate the missing mirror checks |
-| `OUTSIDE_DOMAIN`, `INCOMPLETE_STENCIL` | (read) The query is outside the permission region, or its stencil runs off the grid | Read inside the served region, or deliver a larger rectangle |
+| `OUTSIDE_DOMAIN`, `INCOMPLETE_STENCIL` | (read) The query is outside the permission region, or its stencil runs off the grid. `INCOMPLETE_STENCIL` is also raised at admission: fewer than 17 nodes per quadrant axis, fewer than 32 per full-grid axis, or a failed safe-point search over the declared domain | Read inside the served region, or deliver a larger rectangle |
+| `FRAME_UNSUPPORTED`, `NORMALIZATION_UNSUPPORTED`, `METADATA_CONFLICT` | A premise is declared false (premises 1 to 4, 5 and 6 in that order), or the frame, pixel, normalization or wavelength declarations disagree. Through yippy, a false premise raises a parse error before admission | Correct the declaration, or deliver a model for which the premise holds |
 | `PRECISION_UNAVAILABLE` | JAX 64-bit mode is off | `jax.config.update("jax_enable_x64", True)` before building arrays |
 | `MEMORY_LIMIT` | An allocation estimate exceeds the `MemoryBudget` | Raise the ceilings or tile reads more finely |
 | `BOUND_UNKNOWN` | (read) No error bound exists. Version 0.1 sets it on every read, accepted or not, and a bounded policy refuses because of it | Nothing to fix in a sampling read. Bounded reads need a future error model |
 | `EMPIRICAL_ONLY` | (read) The only accuracy evidence is the finite set of empirical checks | Informational. It is set whenever checks exist |
 
-A refusal can carry several reasons at once, and `sc.reason_names(bits)`
-lists them.
+A refusal can carry several reasons at once, except the two early returns
+above, and `sc.reason_names(bits)` lists them.
 
 ## A refusal, end to end
 
@@ -173,30 +194,42 @@ except sc.AdmissionRefused as err:
 
 ## What does admission check, and in what order?
 
-Admission accumulates reasons rather than stopping at the first, so one
-report lists everything wrong with a delivery. The checks fall into seven
-groups.
+Admission checks in a fixed order, and two failures end the run before
+anything else is looked at. Everything after them is either accumulated into
+one report or skipped once an earlier group has failed.
 
-1. **Structure.** Array shapes and dtypes, finite non-negative samples,
-   declarations present.
-2. **Geometry.** A supported layout (full signed rectangle, or quadrant with
-   origin $(0,0)$ and at least 17 nodes per axis), a complete rectangle
-   without duplicates, offsets within four ULPs of the declared lattice, and
-   lattice and domain values inside the supported numeric range
-   ({doc}`../reference/numerical-contract`).
-3. **Physical premises.** All six premises true with known evidence, a
-   supported frame, pixel measure and normalization.
-4. **Bandwidth.** For every product and axis, $\rho=2(\lambda_0/\lambda_{\min})Lh$
-   below 1 (`NYQUIST_FAIL`) and at most 0.76 (`KERNEL_MARGIN_FAIL`), using
-   the shortest contributing wavelength and, if given, the campaign minimum.
-5. **Symmetry.** For quadrants, the declared reflection, a tolerance no
+1. **Precision.** If JAX 64-bit mode is off, `PRECISION_UNAVAILABLE` is
+   returned alone.
+2. **Memory.** An allocation estimate from the declared array sizes is compared
+   with the `MemoryBudget`. A breach returns `MEMORY_LIMIT` alone, before any
+   other check and before anything large is allocated.
+3. **Semantic checks, accumulated together.** Structure (array shapes and
+   dtypes), metadata and the six premises with their evidence, geometry (a
+   supported layout, a complete rectangle without duplicates, offsets within
+   four ULPs of the declared lattice, values in the supported numeric range
+   with `LAYOUT_UNSUPPORTED` and `GRID_NONUNIFORM` for violations), node
+   data (finite and non-negative), bandwidth ($\rho=2(\lambda_0/\lambda_{\min})Lh$
+   below 1 for `NYQUIST_FAIL` and at most 0.76 for `KERNEL_MARGIN_FAIL`,
+   using the shortest contributing wavelength and, if given, the campaign
+   minimum), the stencil minimum (`INCOMPLETE_STENCIL`) and the memory
+   estimate again with the full set of arrays. All reasons found here are
+   reported together.
+4. **Symmetry.** For quadrant grids, the declared reflection, a tolerance no
    looser than $10^{-6}$, every mirror residual and every axis-invariance
-   check computed from the images.
-6. **Empirical checks.** Interior independent checks, if supplied, are read
-   and their residuals recorded relative to the local peak.
-7. **Memory.** Allocation estimates for resident samples, staging, outputs
-   and scratch against the `MemoryBudget`, before anything large is
-   allocated.
+   check, computed from the images. These run only if no earlier reason was
+   found.
+5. **Empirical interior checks.** If a `CheckSet` is supplied, each check is
+   read and its residual is recorded in the receipt. The residual never gates
+   admission: a large one is evidence, not a refusal. Only a malformed
+   check set (non-finite values, missing identifiers) or a check position the
+   reader refuses returns `DATA_INVALID`.
+
+Because the symmetry checks wait for everything earlier, a delivery with a
+semantic problem never learns whether it would also have failed a mirror
+check. The residual denominator also differs by check type. The mirror and
+axis checks recompute their local peak from the delivered images, but the
+interior check divides by the `core_peak` the delivery supplied, which the
+library does not recompute.
 
 ## What does the receipt record about a decision?
 
@@ -241,9 +274,9 @@ Markdown("\n".join(rows))
 ## What this page established
 
 Admission refuses a delivery whose spacing puts $\rho$ above 0.76 because the
-kernel error rises about 50,000 times across that cliff, and it names every
+kernel's worst-tone error rises about 60,000 times across that cliff, and it names every
 reason it finds. Version 0.1 reads without a certified bound, so the checks
-in the receipt are evidence and never a guarantee. A delivery that passes is
+in the receipt are evidence and never a bound. A delivery that passes is
 the designer's job to build, which the next page walks through.
 
 Next: {doc}`designers`.

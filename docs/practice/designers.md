@@ -74,10 +74,14 @@ hwostyle.use("dark")
    positions at refined propagation settings and report the changes, and compare
    float32 storage with float64 at identical settings.
 
-The spacing rule chains five quantities. The strip shows them for the starter:
-the support width $L$, the bandwidth $B=\sigma_{\max}L$, the spacing $h$ beside
-the Nyquist spacing, the node count and the lattice that results. Read it left
-to right, and change $L$ or $\sigma_{\max}$ to see $h$ move.
+The spacing rule chains five quantities. The strip shows them for the starter
+plan: the support width $L$, the bandwidth $B=\sigma_{\max}L$, the spacing $h$
+beside the Nyquist spacing, the node count and the lattice that results. Read
+it left to right: the circle is the pupil, the triangle is the sketch of its
+autocorrelation whose half-width is $B$ ({doc}`../theory/band-limits` explains
+it), the cyan dots are one step closer than the gray Nyquist dots by the factor
+$\rho$, and the grid panel shows the stored quadrant against the box its
+stencils serve.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -90,14 +94,22 @@ viz.plot_spacing_rule(
 plt.show()
 ```
 
+The plan used $L=1$, which gives $\rho=0.76$ on both axes. The starter's
+declaration is 0.946 by 0.982 $D$, so its margins are $\rho=0.719$ along $x$
+and $0.746$ along $y$. The label $27\times31$ counts nodes along $x$ and then
+along $y$, while the lattice shape is ordered $(n_y, n_x)=(31, 27)$.
+
 ## What the starter rectangle looks like
 
 The figure shows the starter request for the public LUVOIR-A APLC: 27 by 31
 nodes at 0.38 $\lambda_0/D$, the mirrored nodes that exist only by symmetry,
-and the small cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ that the delivery is
-qualified on (the small outlined box near the cross). The shaded square is
-the region where every read has a complete 32 by 32 stencil among the stored
-and mirrored nodes.
+and the small cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ that the delivery
+declares as served and is qualified on (the small outlined box near the
+cross). The shaded square is stencil coverage: the region where every read has
+a complete 32 by 32 stencil among the stored and mirrored nodes. Reads are
+supported everywhere in that square. The rehearsal declares and qualifies only
+the small cell, and a delivery may declare the whole square, in which case
+the reads outside the small cell would be supported but unqualified.
 
 ```{code-cell} python
 :tags: [hide-input]

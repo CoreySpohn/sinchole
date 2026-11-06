@@ -16,8 +16,10 @@ with a reader you can trust where it was admitted.
 The grid comes from the toy Lyot coronagraph of the theory pages, whose
 helper module (`toy_coronagraph.py`, in the `docs` folder of the repository)
 builds a complete quadrant grid: 31 by 31 PSFs at spacing 0.38 $\lambda_0/D$,
-mirror checks, and the declarations sinchole requires. {doc}`declarations`
-explains each declaration, and here they are taken as given.
+mirror checks, and the declarations sinchole requires. This toy grid is not
+the public delivery that {doc}`yippy` and {doc}`../validation` use, which has
+27 by 31 nodes. {doc}`declarations` explains each declaration, and here they
+are taken as given.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -53,15 +55,18 @@ print("reasons:", sc.reason_names(admission.reason_bits))
 print("receipt:", admission.receipt.identity[:16], "...")
 ```
 
-The receipt records what was admitted: its identity is a hash of the data,
-the declarations and their provenance, so readmitting changed data gives a
-new identity.
+The receipt is the small record of what admission checked and decided: its
+identity is a hash of the data, the declarations and their provenance, so
+readmitting changed data gives a new identity.
 
 ## Build a reader and read
 
-An `Interpolator` binds the admitted grid to a permission region (here the
-delivery's box of half-width 5 $\lambda_0/D$), the kernel profile, a read
-policy, a tiling and a memory budget.
+An `Interpolator` binds the admitted grid to a permission region (the set of
+source positions where reads are allowed, here the delivery's box of
+half-width 5 $\lambda_0/D$), the kernel profile, a `ReadPolicy` (which says
+whether a read must carry a certified error bound), a `Tiling` (how many
+detector pixels one read handles at a time, which sets its scratch memory) and
+a memory budget (the byte ceilings that reads and admission may not exceed).
 
 ```{code-cell} python
 reader = sc.Interpolator(
@@ -77,9 +82,13 @@ print("accepted:", bool(result.accepted), " shape:", result.intensity.shape)
 print("error bound:", float(result.abs_error_bound))
 ```
 
-The read returns the image together with its status. The error bound is
-`inf` because version 0.1 does not certify accuracy, and a read in sampling mode
-still returns its image, and the comparison below is how to judge it.
+The call `reader.read(position, product)` takes a source position and a
+product index, the place of the wavelength plane in the delivery's list of
+products, so index 0 is the first and here the only one. The read returns the
+image together with its status. The error bound is `inf` because version 0.1
+does not certify accuracy. The default policy is sampling mode: a read that
+returns its image whenever the grid was admitted and the position is
+permitted, with no bound attached. The comparison below is how to judge it.
 
 ## Compare with direct propagation
 
@@ -107,8 +116,8 @@ plt.show()
 ```
 
 The residual is a few parts in $10^7$ of the planet's peak, with no
-structure tied to the planet's core: it is the kernel's truncation error, the
-floor measured on {doc}`../theory/kernel`.
+structure tied to the planet's core: it is the kernel's truncation error, well below the worst single-tone floor
+measured on {doc}`../theory/kernel`.
 
 ## Many reads at once
 
@@ -207,7 +216,7 @@ except sc.ReadRefused as err:
 You admitted a grid, read it at arbitrary positions individually, in batches
 and under JIT, compared reads with direct propagation, and saw a refusal.
 At the 60 sampled positions, the error stays below $10^{-6}$ of each pixel's
-brightest value. The next page reads a real delivery through yippy, and
+brightest value. The next page shows how to read a delivery through yippy, and
 {doc}`admission` explains what admission refuses and how to fix it.
 
 Next: {doc}`yippy`.

@@ -151,8 +151,9 @@ Mechanically, a tap at signed node index $(i,j)$ reads the stored image at
 $(|i|,|j|)$, reversing the detector columns when $i<0$ and the rows when
 $j<0$. The kernel weights are the same as for a full grid, so a quadrant
 read is algebraically identical to a full-grid read of the symmetric
-extension. The detector must be centered halfway between its middle pixels,
-at `((nx - 1)/2, (ny - 1)/2)`, so that a row or column reversal is an exact
+extension. The detector must be centered at `((nx - 1)/2, (ny - 1)/2)`,
+which is between the two middle pixels when a dimension is even and on the
+middle pixel when it is odd, so that a row or column reversal is an exact
 mirror.
 
 ## When is a mirrored node a faithful copy of the real one?
@@ -168,6 +169,11 @@ the focal-plane mask are all real, and the mask is also centrosymmetric
 (unchanged by inversion through its center, as a circular disk is), then
 complex conjugation of the field gives $E(-\mathbf{x};-\mathbf{s})=E^*(\mathbf{x};\mathbf{s})$,
 so the intensity is unchanged by inverting source and detector together.
+The reason is that reversing the sign of the tilt conjugates the pupil's phase
+ramp, and conjugating the whole chain turns each Fourier transform into its
+inverse and leaves a real pupil, a real stop and a real mask unchanged. The
+inversion of the mask through its center, which a centrosymmetric mask
+tolerates, then absorbs the sign change of the detector coordinate.
 Combined with a single geometric mirror, that inversion supplies the second
 mirror.
 
@@ -230,9 +236,9 @@ intensity symmetric, and a diagonal shift is refused.
 ## What this page established
 
 A quadrant grid reads negative positions by flipping stored images, which
-is exact for optics with the declared two-axis symmetry, and admission
+is exact given the declared two-axis symmetry of the optics, and admission
 verifies that symmetry against independent propagations to $10^{-6}$ of the
 local peak before any read. With bandwidth, spacing and symmetry settled, the
-remaining question is what the numerical contract promises about the taps.
+remaining question is what the numerical contract states about the taps.
 
 Next: {doc}`../reference/numerical-contract`.

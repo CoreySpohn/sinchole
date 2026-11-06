@@ -47,7 +47,9 @@ H = 0.38
 PITCH = 0.25
 CENTER = 63.5
 STAR_IWA = pr.IWA
-BAND_DECLARED = 1.0
+# Declared entrance support (x, y) in D from the manifest; lambda0 = sampling_min, so
+# the band edge in cycles per lambda0/D equals the support.
+SUPPORT = {"x": 0.946, "y": 0.982}
 
 
 def brightest_map(nodes):
@@ -214,13 +216,13 @@ def main(root, cache, out_dir):
     top_pixels = [(p["iy"], p["ix"]) for p in worst_pixels[:8]]
     tone_f = np.linspace(0.02, 1.2, 60)
     tone_error = kernel_tone_error(tone_f)
-    for axis, support in (("x", 0.982), ("y", 0.946)):
+    for axis, support in SUPPORT.items():
         line = np.load(cache / f"line_{axis}.npy")
         rows = []
         for iy, ix in top_pixels:
             g = line[:, iy, ix]
             f, amp, lobe = kaiser_spectrum(g, px)
-            guard = BAND_DECLARED + lobe
+            guard = support + lobe
             out = np.sqrt((amp[f > guard] ** 2).sum() / (amp**2).sum())
             # Wiener norm: the sum of tone amplitudes, which sets how a per-tone
             # kernel error scales onto the pixel's response.
@@ -228,7 +230,7 @@ def main(root, cache, out_dir):
             fr = np.fft.rfftfreq(len(g), px)
             tone = np.interp(fr, tone_f, tone_error)
             wiener = 2 * np.abs(raw).sum()
-            predicted = 2 * (np.abs(raw) * tone)[fr <= BAND_DECLARED].sum()
+            predicted = 2 * (np.abs(raw) * tone)[fr <= support].sum()
             node_s = g[:: round(H / px)]
             sup_nodes = np.abs(node_s).max()
             rows.append(
@@ -248,15 +250,22 @@ def main(root, cache, out_dir):
             declared_support_D=support, guard_lobe_halfwidth=float(lobe), pixels=rows
         )
     result["band"] = dict(
-        declared_half_band=BAND_DECLARED,
+        declared_half_band=SUPPORT,
         window="Kaiser beta 20",
         lines=bands,
-        kernel_tone_error_max_in_band=float(tone_error[tone_f <= 0.982].max()),
+        kernel_tone_error_max_in_band=float(
+            tone_error[tone_f <= max(SUPPORT.values())].max()
+        ),
     )
 
     # --- the kernel on the exact function, query by query ----------------------
     ratio = round(H / px)
     sweeps = {}
+    offsets_xy = np.asarray(arguments["offsets_xy_lod"])
+    lattice_extent = {
+        "x": float(offsets_xy[:, 0].max()),
+        "y": float(offsets_xy[:, 1].max()),
+    }
     for axis, limit in (("x", 4.18), ("y", 5.70)):
         line = np.load(cache / f"line_{axis}.npy")
         center = line.shape[0] // 2
@@ -279,7 +288,14 @@ def main(root, cache, out_dir):
             over_brightest.append(float(rb.max()))
             over_sup.append(float(rs.max()))
             if worst_pixel is None or rb.max() > worst_pixel[0]:
-                worst_pixel = (float(rb.max()), np.unravel_index(rb.argmax(), rb.shape))
+                worst_pixel = (
+                    float(rb.max()),
+                    np.unravel_index(rb.argmax(), rb.shape),
+                    float(rs[np.unravel_index(rb.argmax(), rb.shape)]),
+                    float(s),
+                )
+        iy_w, ix_w = worst_pixel[1]
+        peak_pos = float((np.argmax(np.abs(line[:, iy_w, ix_w])) - center) * px)
         sweeps[axis] = dict(
             source_position_lod=positions,
             max_error_over_brightest=over_brightest,
@@ -303,6 +319,14 @@ def main(root, cache, out_dir):
             pixel_peak_over_brightest_at_worst_pixel=float(
                 sup[worst_pixel[1]] / brightest[worst_pixel[1]]
             ),
+            worst_pixel_error_over_brightest=worst_pixel[0],
+            worst_pixel_error_over_pixel_peak=worst_pixel[2],
+            worst_pixel_query_position_lod=worst_pixel[3],
+            worst_pixel_peak_position_lod=peak_pos,
+            scanned_line_extent_lod=float(center * px),
+            stored_lattice_extent_lod=float(lattice_extent[axis]),
+            peak_inside_stored_lattice=bool(abs(peak_pos) <= lattice_extent[axis]),
+            worst_error_over_pixel_peak_all_pixels_all_queries=float(max(over_sup)),
         )
     result["kernel_on_exact_function"] = dict(
         note="queries at h/4 and h/2 and 3h/4 offsets along each axis, all pixels",
