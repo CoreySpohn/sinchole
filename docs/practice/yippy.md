@@ -43,7 +43,9 @@ constructing a `Coronagraph` with sinc reads.
   mode, because they mean the files are wrong rather than that sinc is
   unavailable.
 
-```python
+This example needs a delivery on disk.
+
+```python notest
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -51,10 +53,10 @@ jax.config.update("jax_enable_x64", True)
 from yippy import Coronagraph
 
 coro = Coronagraph("path/to/delivery", interpolation="sinc")
-image = coro.create_psf(4.0, 5.5)            # planet at (4.0, 5.5) lambda0/D
+image = coro.create_psf(4.0, 5.5)  # planet at (4.0, 5.5) lambda0/D
 image, info = coro.create_psf_with_info(4.0, 5.5)
-print(coro.interpolation_info.effective)     # "sinc"
-print(coro.interpolation_info.receipt_id)    # the admission receipt identity
+print(coro.interpolation_info.effective)  # "sinc"
+print(coro.interpolation_info.receipt_id)  # the admission receipt identity
 ```
 
 A quadrant delivery has no blend representation, so `"auto"` on a quadrant
@@ -117,7 +119,7 @@ example below is not executed on this page, because the starter's release
 asset is not published yet, and it follows the quickstart on yippy's schema
 page.
 
-```python
+```python notest
 import jax
 
 from yippy.datasets import fetch_sinc_starter
@@ -127,8 +129,8 @@ jax.config.update("jax_enable_x64", True)
 
 path = fetch_sinc_starter()
 _, backend, info = route_interpolation(path, "sinc", None, None)
-psf = backend.create_psf(3.9425, 5.415)      # inside the declared corner cell
-print(info.effective)                          # "sinc"
+psf = backend.create_psf(3.9425, 5.415)  # inside the declared corner cell
+print(info.effective)  # "sinc"
 ```
 
 The position lies in the corner cell that the starter declares as served. A
@@ -140,14 +142,16 @@ nodes could support it ({doc}`../validation`).
 `SincOptions` selects a product and passes construction controls through to
 sinchole.
 
-```python
+This example needs a delivery on disk.
+
+```python notest
 from yippy.interpolation import SincOptions
 import sinchole as sc
 import jax.numpy as jnp
 
 options = SincOptions(
-    product_id="mono-000",                     # required for multi-plane deliveries
-    domain=sc.Domain(                          # optional narrower permission region
+    product_id="mono-000",  # required for multi-plane deliveries
+    domain=sc.Domain(  # optional narrower permission region
         "box", "closed", jnp.array([[-4.0, -4.0], [4.0, 4.0]]), jnp.zeros(2)
     ),
 )
