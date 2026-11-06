@@ -58,7 +58,7 @@ reflection = sc.Reflection(
     "none", jnp.array([False, False]), "", "", jnp.int32(0), "", jnp.array([False])
 )
 domain = sc.Domain("box", "closed", jnp.array([[-1., -1.], [1., 1.]]), jnp.zeros(2))
-memory = sc.MemoryBudget(1_000_000, 1_000_000, 1_000_000, 4_000_000)
+memory = sc.MemoryBudget(1_000_000, 1_000_000, 2_000_000, 4_000_000)
 admission = sc.admit_grid(
     jnp.ones((1, 41 * 41, 2, 2)), offsets,
     declared_lattice=lattice, indices_xy=indices, products=products,
@@ -84,7 +84,11 @@ positions and int32 `[Q]` product indices. It maps serial chunks and retains
 static metadata without batching it. Empty batches perform no interpolation.
 `eqx.filter_jit` and outer `jax.vmap` are supported; outer mapped dimensions
 require caller memory accounting. Re-admit modified samples before public
-reuse so provenance and empirical evidence remain valid.
+reuse so provenance and empirical evidence remain valid. Same-shape array leaf
+replacement without readmission does not recompile. A readmitted product has a
+content-bound static `receipt_id` and compiles once for that identity; changing
+its content or provenance creates a new identity and compilation. Strings are
+static metadata.
 
 ## Numerical contract
 
@@ -96,20 +100,65 @@ remainder determines the exact-real quotient floor. The signed stencil is
 All taps, including zero-weight endpoints, must be present. Permission is
 checked at the original signed query, with no expanded boundaries.
 
+The supported metadata range is explicit: each positive lattice spacing and
+nonzero origin component has magnitude in `[1e-6, 1e6]` (zero origins are
+allowed); box limit magnitudes are at most `1e6`; annulus radii lie in
+`[1e-6, 1e6]`, with zero allowed only for the inner radius. Admission refuses
+out-of-range lattice metadata with `LAYOUT_UNSUPPORTED` and out-of-range domain
+metadata with `METADATA_CONFLICT` because the declared permission region cannot
+be represented by this numerical profile.
+
+After query subnormal flushing, nonzero `q - origin` and `fmod` remainders are
+normal: cancellation near a nonzero origin and remainders at or above the
+minimum spacing have binary resolution at least `2**-73`; below the spacing,
+the remainder is the normal difference itself. Permitted quotient magnitudes
+are at most `2e12`, below `2**53`, so integer recovery and negative-side floor
+correction are exact. Squares of supported radii and boundary-scale coordinates
+neither underflow nor overflow. Tiny coordinate squares can round to zero but
+cannot change the rounded comparison with these radius limits. Queries far
+outside the lattice fail coverage before gathering. The floor algorithm itself
+is unchanged and does not promise exact results outside the admitted range.
+
+Safe-point selection tests coverage endpoints, box corners/centers and annulus
+corner rays, side intersections and axis crossings using the same membership
+and floor rules as reads. The finite candidate list may refuse an unresolved
+exotic intersection with `INCOMPLETE_STENCIL`; it never expands the domain.
+
 Quadrants require origin `(0,0)`, at least 17 nodes per axis, an axis-aligned
 detector centered at `((nx-1)/2,(ny-1)/2)`, and a `MirrorCheckSet`. Mirror checks
 contain signed coordinates, signed int32 node indices, independent images,
 product indices and a provenance ID. Each product needs x-negative,
 y-negative and both-negative counterparts. The library computes their
-local-peak residuals and every stored-axis invariance check; caller-provided
+local-peak residuals and every stored-axis invariance check. The versioned
+relative tolerance is `1e-6`; `Reflection.tolerance` may be stricter, but must
+satisfy `0 < tolerance <= 1e-6`. A larger tolerance refuses with
+`SYMMETRY_UNSUPPORTED` before comparison. Caller-provided
 `check_passed` flags have no authority. Local peaks include pixel centers
 within radius 1 in reference angular units. An exactly invariant stored-axis
 image passes even if that source's peak region lies outside the detector;
-a nonzero discrepancy without a positive local reference refuses. Full grids
+a nonzero discrepancy without a positive local reference refuses. The host
+receipt records `axis_exact` independently and uses NaN in `axis_relative`
+where no positive local reference exists. An axis image passes if exactly
+invariant OR if its positive-reference relative residual is within tolerance.
+Full grids
 require reflection kind `none` and no mirror checks.
 
+Adapters may pass `offset_original_dtype=jnp.float32` when original float32
+coordinates were converted to float64 angular units. The four-ULP allowance
+uses `nextafter` in that original dtype at the converted scale; converted values
+are preserved, and `Receipt.offset_dtype` records the original precision.
+Omitting the keyword uses the supplied offset array's dtype. Adapters may also
+pass `provenance=(("key", "full text"), ...)`: ordered pairs, including duplicate
+keys, are retained verbatim in the host receipt and hashed into its identity.
+This is a preservation channel, not validation of the supplied physical claims.
+
 Memory budgets cover native resident samples, admission staging/reorder,
-output leaves and estimated tiled scratch. They are allocation estimates, not
+output leaves and estimated tiled scratch. Admission uses numerical linear
+indices and occupancy counts, with no source-sized Python tuple/set storage.
+The estimate includes coordinate/index casts, residual arrays, linear indices,
+occupancy, sorting/permutation and canonical reorder. Source count is bounded
+conservatively from sample bytes assuming one float32 product, independently
+of detector pixel count. Hashing and sample validation use bounded blocks. They are allocation estimates, not
 measured compiler-workspace or whole-process peak-memory guarantees. The
 library does no file I/O, spectral interpolation, fallback interpolation or
 certificate evaluation.

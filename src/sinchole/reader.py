@@ -97,6 +97,13 @@ def estimate_memory(resident_bytes, shape_yx, tiling, queries, *, admission=Fals
     """Estimate logical allocations, including all result leaves and padding.
 
     Admission budgets three native copies (input staging, reorder, resident).
+    Source count is bounded by resident_bytes / (4 * pixels): at least one
+    product and at least four bytes per sample. This deliberately overestimates
+    multi-product or float64 deliveries without changing the estimator API.
+    Source scratch reserves 192 bytes per possible node for indices (8), offsets
+    (16), float64 index/displacement/expected/residual buffers (64), linear keys
+    (8), occupancy (8), permutation (8), sort workspace (32), masks/casts (48).
+    Occupancy is allocated only when the declared cell count equals node count.
     Read scratch includes the tile, contractions, padded output carry, and one
     serial query chunk. Compiler workspace and caller-owned tables are external.
     """
@@ -112,6 +119,9 @@ def estimate_memory(resident_bytes, shape_yx, tiling, queries, *, admission=Fals
     if admission:
         # Host checking uses at most 65536 samples and one detector geometry.
         scratch += min(resident_bytes // 4, 65536) * 24 + pixels * 64
+        scratch += (resident_bytes // (4 * pixels)) * 192
+        # Bounded safe-point candidate coordinates, floor and membership work.
+        scratch += 65536
     return dict(
         resident=resident_bytes,
         output=output,

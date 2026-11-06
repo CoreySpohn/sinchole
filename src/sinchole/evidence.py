@@ -85,6 +85,10 @@ class Receipt:
 
     Allocation estimates include native staging and canonical reorder copies.
     Compiler workspace and externally owned tables are not measurable here.
+    axis_exact records native-value flip identity independently of axis_relative,
+    whose entries are NaN without a positive local reference. An axis passes
+    either by exact identity or by a defined relative residual within tolerance.
+    provenance retains ordered (key, text) pairs verbatim and is never traced.
     """
 
     identity: str = ""
@@ -105,6 +109,8 @@ class Receipt:
     empirical_max_abs: float = float("nan")
     mirror_local_peak: tuple[float, ...] = ()
     axis_relative: tuple[float, ...] = ()
+    axis_exact: tuple[bool, ...] = ()
+    provenance: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,7 @@ import math
 import sys
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 
 from sinchole._types import F64, check_array, check_static
@@ -75,22 +76,23 @@ def coverage(query, lattice, reflected):
     return jnp.all(jnp.isfinite(floor) & (floor >= lower) & (floor <= size - 17))
 
 
-def safe_query(domain, lattice, reflected):
-    """Find a host-validated point in the domain/coverage intersection.
+@eqx.filter_jit
+def _candidate_membership(points, domain, lattice, reflected):
+    return jax.vmap(lambda q: domain.contains(q) & coverage(q, lattice, reflected))(
+        points
+    )
 
-    The coverage region is a rectangle. For an annulus, the segment from its
-    nearest point to its farthest corner spans every attainable radius.
+
+def safe_query(domain, lattice, reflected):
+    """Find and verify a point in the domain/coverage intersection.
+
+    Test inclusive coverage endpoints before their inward neighbours, box
+    corners and centers, and annular candidates on corner rays and box sides
+    (including axis crossings). Every candidate uses the read-time membership
+    and exact floor rule. This finite list is not a proof of nonemptiness for
+    every floating-point geometry: an unresolved intersection returns None,
+    causing admission to refuse with INCOMPLETE_STENCIL.
     """
-    if domain.kind == "box":
-        lower, upper = domain.limits_xy_lod.tolist()
-        candidates = [[a / 2 + b / 2 for a, b in zip(lower, upper, strict=True)]]
-        candidates.extend(
-            [[x, y] for x in (lower[0], upper[0]) for y in (lower[1], upper[1])]
-        )
-        for candidate in candidates:
-            point = jnp.asarray(candidate, dtype=jnp.float64)
-            if bool(domain.contains(point) & coverage(point, lattice, reflected)):
-                return point
     origin = lattice.origin_xy_lod.tolist()
     spacing = lattice.spacing_xy_lod.tolist()
     size = lattice.shape_yx[::-1]
@@ -99,37 +101,51 @@ def safe_query(domain, lattice, reflected):
         for o, h, n in zip(origin, spacing, size, strict=True)
     ]
     high = [o + h * (n - 16) for o, h, n in zip(origin, spacing, size, strict=True)]
-    # Move into the covered side of rounded coordinate edges.
-    for _ in range(8):
-        low = [math.nextafter(v, math.inf) for v in low]
-        high = [math.nextafter(v, -math.inf) for v in high]
     if domain.kind == "box":
         bounds = domain.limits_xy_lod.tolist()
         low = [max(a, b) for a, b in zip(low, bounds[0], strict=True)]
         high = [min(a, b) for a, b in zip(high, bounds[1], strict=True)]
-        candidate = [(a + b) / 2 for a, b in zip(low, high, strict=True)]
-    else:
-        nearest = [max(a, min(0.0, b)) for a, b in zip(low, high, strict=True)]
-        farthest = [a if abs(a) > abs(b) else b for a, b in zip(low, high, strict=True)]
-        inner, outer = domain.radii_lod.tolist()
-        rlow = max(inner, math.hypot(*nearest))
-        rhigh = min(outer, math.hypot(*farthest))
-        if rlow > rhigh:
-            return None
-        target = (rlow + rhigh) / 2
-        left, right = 0.0, 1.0
-        for _ in range(64):
-            fraction = (left + right) / 2
-            candidate = [
-                a + fraction * (b - a) for a, b in zip(nearest, farthest, strict=True)
-            ]
-            if math.hypot(*candidate) < target:
-                left = fraction
-            else:
-                right = fraction
     if any(a > b for a, b in zip(low, high, strict=True)):
         return None
-    result = jnp.asarray(candidate, dtype=jnp.float64)
-    if bool(domain.contains(result) & coverage(result, lattice, reflected)):
-        return result
+    axes = [
+        (
+            a,
+            b,
+            math.nextafter(a, math.inf),
+            math.nextafter(b, -math.inf),
+            a / 2 + b / 2,
+            max(a, min(0.0, b)),
+        )
+        for a, b in zip(low, high, strict=True)
+    ]
+    candidates = [[x, y] for x in axes[0] for y in axes[1]]
+    if domain.kind == "annulus":
+        inner, outer = domain.radii_lod.tolist()
+        radii = (
+            inner,
+            outer,
+            (inner + outer) / 2,
+            math.nextafter(inner, math.inf),
+            math.nextafter(outer, -math.inf),
+        )
+        directions = [[x, y] for x in (low[0], high[0]) for y in (low[1], high[1])]
+        directions += [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]]
+        for radius in radii:
+            for x, y in directions:
+                norm = math.hypot(x, y)
+                if norm:
+                    candidates.append([radius * (x / norm), radius * (y / norm)])
+            # Circle/box-side intersections also cover narrow off-axis regions.
+            for axis in range(2):
+                for value in (low[axis], high[axis], 0.0):
+                    if abs(value) <= radius:
+                        other = math.sqrt((radius - abs(value)) * (radius + abs(value)))
+                        for sign in (-1, 1):
+                            point = [value, sign * other]
+                            candidates.append(point if axis == 0 else point[::-1])
+    points = jnp.asarray(candidates, dtype=jnp.float64)
+    valid = _candidate_membership(points, domain, lattice, reflected).tolist()
+    for index, permitted in enumerate(valid):
+        if permitted:
+            return points[index]
     return None

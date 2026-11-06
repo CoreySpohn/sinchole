@@ -8,7 +8,17 @@ from sinchole._types import check_static
 
 
 class KernelProfile(eqx.Module):
-    """Fixed unnormalized W=16, beta=12 kernel with versioned floor semantics."""
+    """Fixed unnormalized W=16, beta=12 kernel with versioned floor semantics.
+
+    Admission supports spacings and nonzero origin magnitudes in [1e-6, 1e6],
+    box limit magnitudes <=1e6, and annular radii in [1e-6, 1e6] (inner zero
+    allowed). Query subnormal flushing then leaves nonzero differences and
+    fmod remainders normal. Permitted quotients have magnitude <=2e12, below
+    2**53, so the integer quotient and its negative-side correction are exact.
+    Squared radius limits and boundary-scale coordinates neither underflow nor
+    overflow; negligible coordinate squares may round to zero without changing
+    membership. Queries far outside the lattice fail coverage before gathering.
+    """
 
     name: str = eqx.field(static=True, default="kaiser_w16_beta12_raw_v1")
     floor_rule: str = eqx.field(static=True, default="exact_quotient_floor_v1")
@@ -42,6 +52,10 @@ def exact_quotient_floor_v1(query, origin, spacing):
     Callers must check the resulting float index range before integer conversion.
     The remainder determines the side of a cell edge without reciprocal rounding.
     """
+    # For nonzero origins >=1e-6, adjacent cancellation is >=2**-73;
+    # with zero origin, flushed nonzero q is normal. If |d| < h, r=d;
+    # otherwise h>=1e-6 gives a binary remainder quantum >=2**-73.
+    # Permitted |q-o|/h <=2e12 keeps integer recovery below 2**53.
     difference = flush_subnormal(query) - origin
     remainder = jnp.fmod(difference, spacing)
     quotient = jnp.round((difference - remainder) / spacing)

@@ -138,7 +138,12 @@ class Lattice(eqx.Module):
 
 
 class Reflection(eqx.Module):
-    """Declared two-axis detector flips; admission computes check_passed itself."""
+    """Declared two-axis detector flips; admission computes check_passed itself.
+
+    Reflection requires 0 < tolerance <= 1e-6 of the local peak.
+    Axis evidence records exact native-value identity separately from relative
+    residuals. Without a positive local peak, only exact identity passes.
+    """
 
     kind: str = eqx.field(static=True)
     axes: Boolean = eqx.field(converter=jnp.asarray)
@@ -361,13 +366,14 @@ def _sampling_reasons(products, spacing):
     return reasons
 
 
-def _offset_evidence(offsets, lattice, indices):
+def _offset_evidence(offsets, lattice, indices, original_dtype=None):
+    dtype = offsets.dtype if original_dtype is None else jnp.dtype(original_dtype)
     scale = jnp.maximum(
         jnp.max(jnp.abs(offsets), axis=0), jnp.abs(lattice.spacing_xy_lod)
-    ).astype(offsets.dtype)
-    tau = (
-        4 * (jnp.nextafter(scale, jnp.asarray(jnp.inf, offsets.dtype)) - scale)
-    ).astype(jnp.float64)
+    ).astype(dtype)
+    tau = (4 * (jnp.nextafter(scale, jnp.asarray(jnp.inf, dtype)) - scale)).astype(
+        jnp.float64
+    )
     # Separate eager operations prevent fused multiply-add canonicalization.
     displacement = indices.astype(jnp.float64) * lattice.spacing_xy_lod
     expected = lattice.origin_xy_lod + displacement
@@ -394,7 +400,7 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
     reasons = Reason(0)
     count = cube.shape[0]
     passed = [True] * count
-    residuals, axis_residuals = [], []
+    residuals, axis_residuals, axis_exact = [], [], []
     tolerance = float(reflection.tolerance)
     declared = (
         bool(jnp.all(reflection.axes))
@@ -407,10 +413,10 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
             )
         )
         and math.isfinite(tolerance)
-        and 0 < tolerance
+        and 0 < tolerance <= 1e-6
     )
     if not declared:
-        reasons |= Reason.SYMMETRY_UNSUPPORTED
+        return Reason.SYMMETRY_UNSUPPORTED, jnp.zeros(count, dtype=bool), (), (), ()
     if checks is None or checks.product_index.size == 0:
         reasons |= Reason.SYMMETRY_CHECK_MISSING
     else:
@@ -471,24 +477,42 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
                     cube[product, start:stop, 0]
                     if axis == 0
                     else cube[product, 0, start:stop]
-                ).astype(jnp.float64)
+                )
                 indices = jnp.arange(start, stop, dtype=jnp.float64)
                 zeros = jnp.zeros_like(indices)
                 source = jnp.stack(
                     (zeros, indices) if axis == 0 else (indices, zeros), axis=1
                 )
                 source = source * lattice.spacing_xy_lod
-                relative = _axis_residuals(images, source, products.pixels, axis)
+                exact, relative = _axis_residuals(images, source, products.pixels, axis)
                 values = relative.tolist()
                 axis_residuals.extend(values)
-                if any(not value <= tolerance for value in values):
+                identities = exact.tolist()
+                axis_exact.extend(identities)
+                if any(
+                    not (same or value <= tolerance)
+                    for same, value in zip(identities, values, strict=True)
+                ):
                     reasons |= Reason.SYMMETRY_CHECK_FAILED
                     passed[product] = False
-    return reasons, jnp.asarray(passed), tuple(residuals), tuple(axis_residuals)
+    return (
+        reasons,
+        jnp.asarray(passed),
+        tuple(residuals),
+        tuple(axis_residuals),
+        tuple(axis_exact),
+    )
 
 
 @eqx.filter_jit
 def _axis_residuals(images, sources, pixels, axis):
+    integer = jnp.int32 if images.dtype == jnp.float32 else jnp.int64
+    bits = jax.lax.bitcast_convert_type(images, integer)
+    # Numeric identity allows both signed zeros but preserves subnormal samples.
+    bits = jnp.where((bits & jnp.iinfo(integer).max) == 0, 0, bits)
+    flipped_bits = bits[:, :, ::-1] if axis == 0 else bits[:, ::-1, :]
+    exact = jnp.all(bits == flipped_bits, axis=(1, 2))
+    images = images.astype(jnp.float64)
     rows, columns = jnp.indices(pixels.shape_yx, dtype=jnp.float64)
     displacement = jnp.stack(
         (columns - pixels.center_xy_pix[0], rows - pixels.center_xy_pix[1])
@@ -503,7 +527,7 @@ def _axis_residuals(images, sources, pixels, axis):
     positive = peaks > 0
     relative = differences / jnp.where(positive, peaks, 1.0)
     # Exact invariance does not require an in-stamp relative denominator.
-    return jnp.where(differences == 0, 0.0, jnp.where(positive, relative, jnp.inf))
+    return exact, jnp.where(positive, relative, jnp.nan)
 
 
 def _digest(*values):
@@ -514,13 +538,9 @@ def _digest(*values):
         for leaf in leaves:
             if eqx.is_array(leaf):
                 digest.update(str((leaf.shape, leaf.dtype)).encode())
-                if leaf.ndim:
-                    for start in range(0, leaf.shape[0], 32):
-                        digest.update(
-                            jax.device_get(leaf[start : start + 32]).tobytes()
-                        )
-                else:
-                    digest.update(jax.device_get(leaf).tobytes())
+                flat = leaf.reshape(-1)
+                for start in range(0, flat.size, 65536):
+                    digest.update(jax.device_get(flat[start : start + 65536]).tobytes())
             else:
                 digest.update(repr(leaf).encode())
     return digest.hexdigest()
@@ -542,12 +562,14 @@ def admit_grid(
     checks=None,
     memory,
     mirror_checks=None,
+    offset_original_dtype=None,
+    provenance=(),
 ):
     """Admit complete canonical samples, accumulating semantic refusal reasons.
 
     Args:
         intensity_nodes: Native float32/64 array [P,N,Py,Px].
-        offsets_xy_lod: Original float32/64 source offsets [N,2].
+        offsets_xy_lod: Converted float32/64 source offsets [N,2].
         declared_lattice: Authoritative origin, spacing and shape; never fitted.
         indices_xy: Rebased int32 source indices [N,2], in arbitrary row order.
         products: Physical frame, support, premises and normalization.
@@ -557,6 +579,11 @@ def admit_grid(
         checks: Optional independent off-node empirical comparisons.
         memory: Explicit resident, output, scratch and total byte limits.
         mirror_checks: Required independent signed node checks for quadrants.
+        offset_original_dtype: Original float32/64 precision before conversion;
+            None uses offsets_xy_lod.dtype. Four ULP are evaluated in this dtype
+            at the converted coordinate scale, without recasting the offsets.
+        provenance: Tuple of (key, text) string pairs retained verbatim in the
+            host receipt and hashed into its identity; never traced.
 
     Returns:
         An Admission with grid=None on semantic refusal. Admission.require()
@@ -566,8 +593,17 @@ def admit_grid(
     # Local import breaks the intentional admission/reader construction cycle.
     from sinchole.reader import Interpolator, ReadPolicy, Tiling, estimate_memory
 
+    if not isinstance(provenance, tuple) or any(
+        not isinstance(pair, tuple)
+        or len(pair) != 2
+        or not all(isinstance(value, str) for value in pair)
+        for pair in provenance
+    ):
+        raise TypeError("Provenance requires a tuple of (key, text) string pairs")
     if not jax.config.x64_enabled:
-        return Admission(None, Receipt(), int(Reason.PRECISION_UNAVAILABLE))
+        return Admission(
+            None, Receipt(provenance=provenance), int(Reason.PRECISION_UNAVAILABLE)
+        )
     if not hasattr(intensity_nodes, "shape") or len(intensity_nodes.shape) != 4:
         raise ValueError("Nodes require [product, source, row, column]")
     allocations = estimate_memory(
@@ -581,11 +617,20 @@ def admit_grid(
         allocations[key] > getattr(memory, f"max_{key}_bytes")
         for key in ("resident", "output", "scratch", "total")
     ):
-        receipt = Receipt(allocation_estimate=tuple(allocations.items()))
+        receipt = Receipt(
+            allocation_estimate=tuple(allocations.items()), provenance=provenance
+        )
         return Admission(None, receipt, int(Reason.MEMORY_LIMIT))
     nodes = jnp.asarray(intensity_nodes)
     offsets = jnp.asarray(offsets_xy_lod)
     indices = jnp.asarray(indices_xy)
+    offset_dtype = (
+        offsets.dtype
+        if offset_original_dtype is None
+        else jnp.dtype(offset_original_dtype)
+    )
+    if offset_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.float64)):
+        raise TypeError("Original offsets require float32 or float64 precision")
     if nodes.ndim != 4:
         raise ValueError("Nodes require [product, source, row, column]")
     count, rows = nodes.shape[:2]
@@ -605,7 +650,24 @@ def admit_grid(
     )
     if not geometry_valid:
         reasons |= Reason.GRID_NONUNIFORM
+    range_valid = all(1e-6 <= h <= 1e6 for h in spacing) and all(
+        v == 0 or 1e-6 <= abs(v) <= 1e6 for v in origin
+    )
+    if not range_valid:
+        reasons |= Reason.LAYOUT_UNSUPPORTED
+    geometry_valid = geometry_valid and range_valid
+    if domain.kind == "box":
+        domain_valid = all(
+            abs(v) <= 1e6 for row in domain.limits_xy_lod.tolist() for v in row
+        )
+    else:
+        inner, outer = domain.radii_lod.tolist()
+        domain_valid = (inner == 0 or 1e-6 <= inner <= 1e6) and 1e-6 <= outer <= 1e6
+    if not domain_valid:
+        reasons |= Reason.METADATA_CONFLICT
     reflected = reflection.kind == "two_axis_pixel_flip_v1"
+    if not 0 < float(reflection.tolerance) <= 1e-6:
+        reasons |= Reason.SYMMETRY_UNSUPPORTED
     if reflection.kind not in ("none", "two_axis_pixel_flip_v1"):
         reasons |= Reason.LAYOUT_UNSUPPORTED | Reason.SYMMETRY_UNSUPPORTED
     if reflected and any(v != 0 for v in origin):
@@ -613,26 +675,42 @@ def admit_grid(
     if not reflected and (bool(jnp.any(reflection.axes)) or mirror_checks is not None):
         reasons |= Reason.SYMMETRY_UNSUPPORTED
     sy, sx = lattice.shape_yx
-    pairs = [tuple(pair) for pair in indices.tolist()]
-    if len(set(pairs)) != len(pairs):
+    # Numerical buffers keep occupancy validation bounded by the delivery size.
+    # Never allocate the declared rectangle when its size exceeds delivered rows.
+    linear = indices[:, 1].astype(jnp.int64) * sx + indices[:, 0]
+    in_range = bool(jnp.all((indices >= 0) & (indices < jnp.array([sx, sy]))))
+    if in_range and rows == sx * sy:
+        occupancy = jnp.bincount(linear, length=sx * sy)
+        duplicate = bool(jnp.any(occupancy > 1))
+        complete = bool(jnp.all(occupancy == 1))
+    else:
+        # Out-of-range pairs need lexicographic keys to avoid linear collisions.
+        keys = (indices[:, 1].astype(jnp.int64) << 32) + indices[:, 0]
+        ordered = jnp.sort(keys)
+        duplicate = bool(jnp.any(ordered[1:] == ordered[:-1]))
+        complete = False
+    if duplicate:
         reasons |= Reason.GRID_DUPLICATE
-    complete = len(set(pairs)) == sx * sy and all(
-        0 <= x < sx and 0 <= y < sy for x, y in pairs
-    )
     if not complete:
         reasons |= Reason.GRID_INCOMPLETE
     if min(sy, sx) < (17 if reflected else 32):
         reasons |= Reason.INCOMPLETE_STENCIL
     tau, residual = (), ()
     if rows and geometry_valid:
-        uniform, tau, residual = _offset_evidence(offsets, lattice, indices)
+        uniform, tau, residual = _offset_evidence(
+            offsets, lattice, indices, offset_dtype
+        )
         if not uniform:
             reasons |= Reason.GRID_NONUNIFORM
         reasons |= _sampling_reasons(products, spacing)
     flat_nodes = nodes.reshape(-1)
     for start in range(0, flat_nodes.size, 65536):
         block = flat_nodes[start : start + 65536]
-        if not bool(jnp.all(jnp.isfinite(block) & (block >= 0))):
+        integer = jnp.int32 if block.dtype == jnp.float32 else jnp.int64
+        bits = jax.lax.bitcast_convert_type(block, integer)
+        magnitude_mask = jnp.iinfo(integer).max
+        negative = (bits < 0) & ((bits & magnitude_mask) != 0)
+        if not bool(jnp.all(jnp.isfinite(block) & ~negative)):
             reasons |= Reason.DATA_INVALID
     allocations = estimate_memory(
         nodes.nbytes, products.pixels.shape_yx, Tiling(), 1, admission=True
@@ -642,12 +720,17 @@ def admit_grid(
         for key in ("resident", "output", "scratch", "total")
     ):
         reasons |= Reason.MEMORY_LIMIT
-    if geometry_valid and safe_query(domain, lattice, reflected) is None:
+    if (
+        geometry_valid
+        and domain_valid
+        and safe_query(domain, lattice, reflected) is None
+    ):
         reasons |= Reason.INCOMPLETE_STENCIL
     receipt = Receipt(
         profile_id=profile.identity,
         execution_profile=f"jax-{jax.__version__}:{jax.default_backend()}:float64",
-        offset_dtype=str(offsets.dtype),
+        offset_dtype=str(offset_dtype),
+        provenance=provenance,
         offset_tolerance_xy=tau,
         canonicalization_residual_xy=residual,
         stored_bounds_xy=(
@@ -683,10 +766,10 @@ def admit_grid(
     )
     if reasons:
         return Admission(None, receipt, int(reasons))
-    order = jnp.argsort(indices[:, 1].astype(jnp.int64) * sx + indices[:, 0])
+    order = jnp.argsort(linear)
     cube = nodes[:, order].reshape(count, sy, sx, *products.pixels.shape_yx)
     if reflected:
-        symmetry_reasons, passed, mirror, axes = _symmetry_checks(
+        symmetry_reasons, passed, mirror, axes, exact = _symmetry_checks(
             cube, lattice, products, reflection, mirror_checks
         )
         reasons |= symmetry_reasons
@@ -695,6 +778,7 @@ def admit_grid(
             receipt,
             mirror_local_peak=mirror,
             axis_relative=axes,
+            axis_exact=exact,
             provenance_ids=(
                 *receipt.provenance_ids,
                 mirror_checks.provenance_id if mirror_checks else "",
@@ -713,6 +797,8 @@ def admit_grid(
         profile,
         checks,
         mirror_checks,
+        str(offset_dtype),
+        provenance,
     )
     receipt = replace(receipt, identity=identity)
     grid = SampledGrid(cube, lattice, products, reflection, identity)

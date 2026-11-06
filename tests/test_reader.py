@@ -17,15 +17,16 @@ compiled_batch = eqx.filter_jit(sc.read_batch)
 
 
 def test_off_node_analytic_and_scale(full_reader):
-    """Fails on tap/axis/scale mistakes; 8e-6 bounds low-occupancy truncation.
+    """Fails on tap/axis/scale mistakes; 3e-7 bounds low-occupancy truncation.
 
     The largest source frequency is .16 cycles/lod at pitch .25 (8% of
-    Nyquist). The raw 32-tap beta=12 window leaves a few ppm DC/ripple error.
+    Nyquist). The measured correct error is 2.912e-7; a shifted y stencil gives
+    1.1681e-6. The 3e-7 allowance resolves that mutation.
     """
     q = jnp.array([0.137, -0.219])
     image = compiled_read(full_reader, q, jnp.int32(0))
     expected = analytic(q)
-    np.testing.assert_allclose(image.intensity, expected, atol=8e-6, rtol=0)
+    np.testing.assert_allclose(image.intensity, expected, atol=3e-7, rtol=0)
     assert image.accepted and image.status == sc.Status.SAMPLING_ADMITTED
     assert image.reason_bits == sc.Reason.BOUND_UNKNOWN
     assert not image.bound_available and image.bound_kind == sc.BoundKind.UNKNOWN
