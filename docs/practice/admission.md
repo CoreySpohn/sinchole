@@ -95,8 +95,8 @@ ep.plot.ref_line(ax, 1.0, "Nyquist 1", orient="v", where="end")
 ep.motion.carried_tag(ax, r"kernel error against $\rho$", corner="upper left")
 (curve,) = ax.plot([], [], color=pal.cyan, lw=2)
 (head,) = ax.plot([], [], "o", color=pal.cyan, ms=7)
-verdict = ax.text(0.03, 0.56, "", transform=ax.transAxes, va="top", fontsize=13)
-spacing_text = ax.text(0.03, 0.43, "", transform=ax.transAxes, va="top", fontsize=10,
+verdict = ax.text(0.03, 0.84, "", transform=ax.transAxes, va="top", fontsize=13)
+spacing_text = ax.text(0.03, 0.73, "", transform=ax.transAxes, va="top", fontsize=10,
                        color=ep.style.neutral(0.7))
 
 
@@ -107,7 +107,7 @@ def draw(fig, k):
     names = verdicts[k]
     verdict.set_text("admitted" if not names else " + ".join(names))
     verdict.set_color(ep.style.role("text") if not names else ep.style.role("alert"))
-    spacing_text.set_text(rf"spacing $h$ = {spacings[k]:.4f} $\lambda_0/D$, error {errors[k]:.1e}")
+    spacing_text.set_text(rf"spacing $h$ = {spacings[k]:.4f} $\lambda_0/D$, error " + tex_str(errors[k]))
 
 
 anim = ep.render.animate(fig, draw, order, fps=10)
@@ -129,7 +129,7 @@ ep.plot.ref_line(ax, 1.0, "Nyquist 1", orient="v", where="end")
 before, after = errors[rho_frames == 0.76][0], errors[rho_frames == 0.9][0]
 ax.annotate(tex_str(before), (0.76, before), (0.6, before * 0.2), color=pal.cyan,
             arrowprops={"arrowstyle": "-", "color": pal.cyan, "lw": 0.8})
-ax.annotate(tex_str(after) + " at 0.90", (0.9, after), (0.8, after * 25), color=pal.cyan,
+ax.annotate(tex_str(after) + " at 0.90", (0.9, after), (0.6, after * 0.5), color=pal.cyan,
             arrowprops={"arrowstyle": "-", "color": pal.cyan, "lw": 0.8})
 plt.show()
 print(f"error growth from rho 0.76 to 0.90: {after / before:.0f}x")
