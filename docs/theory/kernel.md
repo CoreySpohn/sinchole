@@ -8,30 +8,23 @@ mystnb:
 
 # How close to the Nyquist limit can a 32-tap kernel go?
 
-Cutting the ideal sinc at 32 samples leaves an error of several percent in
-the worst case, and a planet photometry budget cannot spend that much on
-filling the gaps of a grid. The sinchole kernel measures about two parts in a
-million for the worst single tone. This page asks what the kernel does to earn
-that number, how far toward the Nyquist limit a grid may go before the number
-fails, and what one read costs when the grid has two axes.
+{doc}`The previous page <../foundations/sinc-interpolation>` ended with a
+problem. The ideal sinc needs every sample, a program can afford 32 taps per
+axis, and cutting the sinc at the edge of the stencil leaves an error of
+several percent of the signal. This page asks how a smooth taper repairs the
+cut, and how close to the Nyquist limit a grid may then go before the repair
+stops working.
 
-:::{admonition} Definitions
-:class: note
+:::{admonition} What perfect interpolation needs
+:class: important
 
-- **Kaiser-sinc kernel.** The sinc multiplied by a Kaiser window, with
-  half-width $W=16$ samples and shape parameter $\beta=12$. It is zero beyond
-  16 samples, so a read uses 32 taps per axis.
-- **Kaiser window.** A bell-shaped taper built from the modified Bessel
-  function $I_0$. The shape parameter $\beta$ sets how fast it falls.
-- **Separable.** A two-dimensional weight is the product $w(t_x)\,w(t_y)$ of
-  two one-dimensional weights.
-- **Margin.** The largest oversampling factor the kernel is admitted at,
-  $\rho=0.76$.
-- **Worst tone.** The largest error over every single cosine up to the band
-  edge and every query offset inside one cell, for a signal of unit amplitude.
-- **Typical signal.** The largest error over 40 random sums of 12 cosines,
-  which sits below the worst tone because the random amplitudes rarely line
-  up.
+1. **A band limit.** The signal has no cosine above a known bandwidth
+   $f_{\max}$. *({doc}`../foundations/sampling`; a coronagraph's bandwidth
+   is found in {doc}`band-limits`.)*
+2. **Dense enough samples.** $\rho=2f_{\max}<1$.
+   *({doc}`../foundations/sampling`)*
+3. **A way to combine the samples that a program can afford.** Weights that
+   are a sinc, kept to 32 taps without leaving a large error. **This page.**
 :::
 
 ```{code-cell} python
@@ -41,335 +34,360 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from IPython.display import Markdown
+from myst_nb import glue
 
 import eyepiece as ep
 import toy_coronagraph as tc
-from sinchole import viz
-from sinchole.kernel import stencil, weights
+from sinchole.kernel import weights
 
 jax.config.update("jax_enable_x64", True)
 hwostyle.use("dark")
 pal = hwostyle.palette
+FAINT = ep.style.neutral(0.25)
+SCENERY = ep.style.neutral(0.45)
+KEPT = ep.style.neutral(0.65)
+CUT = ep.style.neutral(0.55)
+
+W_HALF = 16
+BETA = 12.0
+
+
+def tex(value, digits=1):
+    """Format a number as a LaTeX power of ten."""
+    mantissa, exponent = f"{value:.{digits}e}".split("e")
+    return Markdown(rf"${mantissa}\times10^{{{int(exponent)}}}$")
+
+
+def num(name, text):
+    """Glue a plain string."""
+    glue(name, text, display=False)
+
+
+def kaiser(t, beta=BETA):
+    """The Kaiser window, zero beyond 16 samples."""
+    inside = np.abs(t) < W_HALF
+    arg = beta * np.sqrt(np.where(inside, 1 - (t / W_HALF) ** 2, 0.0))
+    return np.where(inside, np.i0(arg) / np.i0(beta), 0.0)
+
+
+def kernel(t):
+    """The sinchole Kaiser-sinc kernel, from the library."""
+    return np.asarray(weights(jnp.asarray(t, dtype=jnp.float64)))
+
+
+def truncated(t):
+    """The ideal sinc with every weight beyond 16 samples dropped."""
+    return np.where(np.abs(t) < W_HALF, np.sinc(t), 0.0)
+
+
+def tone_error(freq, rule, offsets=np.linspace(0.0, 1.0, 41)):
+    """Worst error over query offsets, for a unit tone at each frequency."""
+    taps = np.arange(-15, 17)
+    w = rule(offsets[:, None] - taps)
+    tone = np.exp(2j * np.pi * freq[:, None] * taps)
+    truth = np.exp(2j * np.pi * freq[:, None] * offsets)
+    return np.max(np.abs(tone @ w.T - truth), axis=1)
 ```
 
-## Does tapering the sinc remove the cut error?
+## What does the cut remove?
 
-Tapering multiplies the sinc by a smooth window that falls to zero at the
-edge of the stencil, so nothing jumps where the formula is cut. The same
-test as on the foundations page applies: random band-limited signals,
-sampled at the integers and rebuilt at random offsets, with the worst error
-measured as a fraction of the signal's total amplitude. Here and below the
-worst case is a single cosine, maximized over its frequency and over the
-query offset, because a sum of tones can only reach the sum of their errors.
+A read at a query adds the 32 samples nearest it, each times a weight taken
+from the sinc. The figure draws those weights for a query halfway between two
+samples. Gray dots are the 32 taps the stencil keeps, and the pink rings are
+the first weights it throws away.
 
-```{admonition} Predict before reading on
-:class: tip
-With the Kaiser taper in place and the signal at $\rho=0.5$, is the worst
-error near $10^{-2}$, $10^{-4}$ or $10^{-6}$ of the amplitude?
+```{code-cell} python
+:tags: [hide-input]
+taps = np.arange(-25, 27)
+offset = 0.5 - taps
+kept = (taps >= -15) & (taps <= 16)
+w_sinc = np.sinc(offset)
+first_dropped = np.abs(w_sinc[~kept][np.argmin(np.abs(offset[~kept]))])
+dropped_big = np.abs(w_sinc[~kept]).max()
+
+fig, ax = plt.subplots(figsize=(9, 2.8), constrained_layout=True)
+ax.axhline(0, color=FAINT, lw=1)
+ax.vlines(offset[kept], 0, w_sinc[kept], color=KEPT, lw=1.4)
+ax.plot(offset[kept], w_sinc[kept], "o", color=KEPT, ms=4, label="kept: 32 taps")
+ax.vlines(offset[~kept], 0, w_sinc[~kept], color=pal.pink, lw=1.2)
+ax.plot(offset[~kept], w_sinc[~kept], "o", mfc="none", mec=pal.pink, ms=5,
+        label="dropped by the cut")
+ax.axvline(16, color=FAINT, lw=1, ls="--")
+ax.axvline(-16, color=FAINT, lw=1, ls="--")
+ax.set_xlim(-26, 26)
+ax.set_ylim(-0.12, 0.3)
+ax.set_xlabel("offset of the tap from the query (samples)")
+ax.set_ylabel(r"weight $\mathrm{sinc}(t)$")
+ax.set_title(rf"the first dropped weight has size ${first_dropped:.3f}$", color=pal.pink,
+             fontsize=10)
+ax.legend(loc="upper right", frameon=False)
+plt.show()
+num("k_first_dropped", f"{first_dropped:.3f}")
+num("k_first_dropped_pct", f"{100 * first_dropped:.0f}")
 ```
 
-```{dropdown} Answer
-Near $10^{-6}$: {glue}`k_w05`, four orders of magnitude below the
-cut sinc at the same $\rho$ ({glue}`k_t05`). The window leaves the central lobes nearly
-untouched and drives the far weights smoothly to zero.
+Look at the pink rings just outside the dashed edges. They are as large as
+{glue:text}`k_first_dropped` and they alternate in sign, so for a slow signal
+they nearly cancel and the cut leaves an error near
+{glue:text}`k_first_dropped_pct` percent, the size measured on the foundations
+page. To lose less, the weights must already be small where the cut falls.
+
+A smooth function that is 1 at the centre and falls close to zero at the edge,
+multiplied into the sinc, does that. Such a function is called a **window**.
+
+## How small can a window make the weights at the edge?
+
+The **Kaiser-sinc kernel** is the sinc times a Kaiser window. The window has one
+knob, a shape parameter $\beta$. The figure shows the window for four values,
+and then the kernel that the largest one builds, in the same stacked axes so
+that every curve is read at the same offset.
+
+```{code-cell} python
+:tags: [hide-input]
+t = np.linspace(-17.5, 17.5, 3501)
+fig, axes = plt.subplots(3, 1, figsize=(9, 7.4), sharex=True, constrained_layout=True)
+
+top, mid, bot = axes
+for beta, color, lw in ((0, CUT, 1.2), (4, CUT, 1.2), (8, CUT, 1.2), (12, pal.yellow, 2.2)):
+    top.semilogy(t, np.maximum(kaiser(t, beta), 1e-12), color=color, lw=lw)
+    edge = kaiser(np.array([15.999]), beta)[0]
+    top.text(17.8, max(edge, 3e-6), rf"$\beta={beta}$", color=color, fontsize=9, va="center")
+top.set_ylim(1e-6, 2)
+top.set_ylabel("window")
+top.set_title(r"the window at each shape parameter $\beta$", fontsize=10, color=SCENERY)
+
+mid.plot(t, np.sinc(t), color=CUT, lw=1.2)
+mid.plot(t, kernel(t), color=pal.cyan, lw=1.8)
+mid.set_ylabel("weight")
+mid.set_title("the kernel (cyan) beside the ideal sinc (gray)", fontsize=10, color=SCENERY)
+
+bot.semilogy(t, np.maximum(np.abs(np.sinc(t)), 1e-12), color=CUT, lw=1.2)
+bot.semilogy(t, np.maximum(np.abs(kernel(t)), 1e-12), color=pal.cyan, lw=1.8)
+bot.set_ylim(1e-9, 2)
+bot.set_ylabel("size of the weight")
+bot.set_xlabel("offset of the tap from the query (samples)")
+bot.set_title("the same two curves, sizes on a logarithmic axis", fontsize=10, color=SCENERY)
+for ax in axes:
+    for edge in (-16, 16):
+        ax.axvline(edge, color=FAINT, lw=1, ls="--")
+    ax.set_xlim(-17.5, 19.5)
+plt.show()
+
+i0_beta = np.i0(BETA)
+edge_value = 1 / i0_beta
+estimate = first_dropped * edge_value
+formula_gap = float(np.max(np.abs(kernel(t) - np.sinc(t) * kaiser(t))))
+num("k_i0", f"{i0_beta:.2g}")
+glue("k_edge", tex(edge_value, 1), display=False)
+glue("k_estimate", tex(estimate, 1), display=False)
+glue("k_gap", tex(formula_gap, 0), display=False)
 ```
 
-The kernel multiplies the sinc by the window,
+The top axes show every window starting at 1, but the larger $\beta$ is, the
+lower it falls by the edge, at $t=\pm16$. The middle axes show that the
+kernel keeps the central lobes of the sinc almost unchanged. The bottom axes show
+what the window buys: the sinc's weights stay near
+{glue:text}`k_first_dropped` all the way to the edge, and the kernel's fall
+by several orders of magnitude.
+
+In symbols, the kernel multiplies the sinc by the window,
 
 $$
 w(t)=\operatorname{sinc}(t)\,\frac{I_0\!\left(\beta\sqrt{1-(t/W)^2}\right)}{I_0(\beta)}
 \quad\text{for } |t|<W,
 $$
 
-and is zero otherwise. In words: the window is one at the center and falls
-to $1/I_0(\beta)$ at the edge, so the weights near the query are almost the
-sinc's own and the weights near $t=\pm16$ are nearly zero.
+and is zero otherwise. Here $W=16$ is the half-width and $I_0$ is the modified
+Bessel function. The window is 1 at $t=0$ and falls to $1/I_0(\beta)$ at the
+edge, which for $\beta=12$ is {glue}`k_edge`, because $I_0(12)$ is about
+{glue:text}`k_i0`. The library's weights agree with this formula to
+{glue}`k_gap` at every point of the figure.
 
-## Does the worst-tone error stay flat until a cliff at the margin?
+```{admonition} Predict before reading on
+:class: tip
+The cut sinc left an error set by the edge weight, {glue:text}`k_first_dropped`.
+The window multiplies that weight by {glue}`k_edge`. Is the error left near
+$10^{-2}$, $10^{-4}$ or $10^{-6}$ of the signal's amplitude?
+```
 
-The left panel draws the kernel against the ideal sinc. The right panel
-measures the worst-tone error against $\rho$ for the cut sinc (gray) and for
-the kernel (solid cyan), with the typical random-signal error for the kernel
-as a dashed line.
+```{dropdown} Answer
+Near $10^{-6}$: {glue:text}`k_first_dropped` times {glue}`k_edge` is
+{glue}`k_estimate`. The next section measures the error and finds it within a
+factor of three of this estimate.
+```
+
+## Where does the error stay small?
+
+The measure that follows is the **worst-tone error**: a single cosine of size 1
+and frequency $f$ is sampled at the integers and read back at a query, and the
+worst difference over every query position inside one cell, the interval
+between two samples, is the error. The figure plots it against $f$ for the
+cut sinc (gray) and for the kernel (cyan). The top axis gives the same
+frequency as the oversampling factor $\rho=2f$ of
+{doc}`the sampling page <../foundations/sampling>`.
 
 ```{code-cell} python
 :tags: [hide-input]
-def truncated(t):
-    """The ideal sinc with every weight beyond 16 samples dropped."""
-    return np.where(np.abs(t) < 16, np.sinc(t), 0.0)
+freq = np.linspace(0.0, 0.5, 501)
+err_kernel = tone_error(freq, kernel)
+err_cut = tone_error(freq, truncated)
+rho_of = lambda f: 2 * f
 
+# Estimate of the band edge from Kaiser's design rules, in the dropdown below.
+atten = BETA / 0.1102 + 8.7
+floor_est = 10 ** (-atten / 20)
+transition = (atten - 8) / (2.285 * 31) / (2 * np.pi)
+edge_est = 0.5 - transition / 2
 
-rhos = np.array([0.3, 0.4, 0.5, 0.6, 0.7, 0.76, 0.8, 0.85, 0.9, 0.95, 1.0])
-err_kaiser = np.array([tc.kernel_error_worst(r) for r in rhos])
-err_trunc = np.array([tc.kernel_error_worst(r, kernel=truncated) for r in rhos])
-err_typical = np.array([tc.kernel_error(r) for r in rhos])
+running = np.maximum.accumulate(err_kernel)
+in_margin = freq <= 0.38 + 1e-9
+cross = freq[np.argmax((err_kernel > err_cut) & (freq > 0.2))]
 
-fig, (left, right) = plt.subplots(1, 2, figsize=(9, 3.1), constrained_layout=True)
-viz.plot_kernel(ax=left)
-left.annotate("Kaiser-sinc", (2.5, 0.13), (6, 0.55), color=pal.cyan, fontsize=9,
-              arrowprops={"arrowstyle": "-", "color": pal.cyan, "lw": 0.8})
-left.annotate("ideal sinc", (13.5, 0.03), (8, -0.17), color=ep.style.neutral(0.65),
-              fontsize=9, arrowprops={"arrowstyle": "-", "color": ep.style.neutral(0.5),
-                                      "lw": 0.8})
-right.semilogy(rhos, err_trunc, "o-", color=ep.style.neutral(0.55), lw=1.5)
-right.semilogy(rhos, err_typical, "--", color=pal.cyan, lw=1.2, alpha=0.7)
-right.semilogy(rhos, err_kaiser, "o-", color=pal.cyan, lw=2)
-right.axvline(0.76, color=ep.style.neutral(0.35), lw=1, ls="--")
-right.axvline(1.0, color=ep.style.neutral(0.35), lw=1)
-right.text(0.765, 3e-1, "0.76", color=ep.style.neutral(0.6), fontsize=9)
-right.text(0.985, 3e-1, "Nyquist", color=ep.style.neutral(0.6), fontsize=9, ha="right")
-right.text(0.32, 6e-2, "truncated sinc, worst tone", color=ep.style.neutral(0.65), fontsize=9)
-right.text(0.32, 3.5e-6, "Kaiser-sinc, worst tone", color=pal.cyan, fontsize=9)
-right.text(0.32, 1.2e-7, "typical random signal", color=pal.cyan, fontsize=8, alpha=0.8)
-right.set_xlabel(r"oversampling factor $\rho$")
-right.set_ylabel("error / tone amplitude")
-right.set_ylim(1e-8, 1)
+fig, ax = plt.subplots(figsize=(9, 3.6), constrained_layout=True)
+ax.axvspan(0, 0.38, color=pal.cyan, alpha=0.06, lw=0)
+ax.semilogy(freq, err_cut, color=CUT, lw=1.8)
+ax.semilogy(freq, err_kernel, color=pal.cyan, lw=2.2)
+ax.axhline(estimate, color=pal.yellow, lw=1, ls=":")
+ax.axvline(0.38, color=pal.pink, lw=1.2, ls="--")
+ax.axvline(0.5, color=SCENERY, lw=1)
+ax.set_ylim(1e-8, 3)
+ax.set_xlim(0, 0.52)
+ax.text(0.015, 5e-1, "cut sinc", color=CUT, fontsize=10)
+ax.text(0.015, 2.5e-5, "Kaiser-sinc kernel", color=pal.cyan, fontsize=10)
+ax.text(0.015, estimate * 1.6, "edge-weight estimate", color=pal.yellow, fontsize=9)
+ax.text(0.385, 2e-8, r"$f=0.38$", color=pal.pink, fontsize=9)
+ax.text(0.497, 2e-8, "Nyquist", color=SCENERY, fontsize=9, ha="right")
+ax.set_xlabel(r"tone frequency $f$ (cycles per sample)")
+ax.set_ylabel("worst-tone error")
+top_axis = ax.secondary_xaxis("top", functions=(rho_of, lambda r: r / 2))
+top_axis.set_xlabel(r"oversampling factor $\rho=2f$")
 plt.show()
+
+at_kernel = lambda f: err_kernel[np.argmin(np.abs(freq - f))]
+glue("k_floor_lo", tex(err_kernel[0], 1), display=False)
+glue("k_floor", tex(err_kernel[in_margin].max(), 1), display=False)
+cut_running = np.maximum.accumulate(err_cut)
+num("k_cut_015_pct", f"{100 * cut_running[np.argmin(np.abs(freq - 0.15))]:.0f}")
+num("k_cut_038_pct", f"{100 * cut_running[np.argmin(np.abs(freq - 0.38))]:.0f}")
+glue("k_at_040", tex(at_kernel(0.40), 1), display=False)
+glue("k_at_045", tex(at_kernel(0.45), 1), display=False)
+num("k_at_050", f"{at_kernel(0.5):.2f}")
+num("k_cross_rho", f"{rho_of(cross):.2f}")
+num("k_ratio", f"{err_kernel[np.argmin(np.abs(freq - 0.4))] / err_kernel[in_margin].max():.0f}")
+glue("k_est_floor", tex(floor_est, 1), display=False)
+num("k_atten", f"{atten:.0f}")
+num("k_trans", f"{transition:.2f}")
+num("k_edge_est", f"{edge_est:.2f}")
+num("k_rho_est", f"{rho_of(edge_est):.2f}")
+```
+
+Look at the cyan curve against the dotted yellow line. The kernel's error
+sits between {glue}`k_floor_lo` at $f=0$ and {glue}`k_floor` at $f=0.38$,
+near the yellow estimate of the previous section. The gray ripple of the cut sinc
+peaks near {glue:text}`k_cut_015_pct` percent by $f=0.15$ and
+{glue:text}`k_cut_038_pct` percent by $f=0.38$. Past $f=0.38$ the kernel's error climbs: {glue}`k_at_040` at
+$f=0.40$, {glue}`k_at_045` at $f=0.45$ and {glue:text}`k_at_050` at the
+Nyquist limit, the whole amplitude of the tone. The foundations figure of the
+bandwidth-0.5 row shows why that last value must be 1: a tone at the Nyquist
+limit can be zero at every sample.
+
+The taper has a price. Beyond $\rho=${glue:text}`k_cross_rho` the kernel's error
+is larger than the cut sinc's, so the repair buys a very small error inside
+the band and costs accuracy near the Nyquist limit.
+
+```{dropdown} The estimate of where the floor ends
+Kaiser's design rules for filters give two numbers. His first rule relates
+the shape parameter to the rejection the window achieves, $\beta=0.1102(A-8.7)$,
+so $\beta=12$ gives $A\approx{}$ {glue:text}`k_atten` dB, an amplitude ratio near
+{glue}`k_est_floor`, close to the edge-weight estimate. His length rule,
+$N-1=(A-8)/(2.285\,\Delta\omega)$, gives the width of the transition between
+passing and rejecting frequencies for $N=32$ taps: {glue:text}`k_trans` cycles
+per sample. The transition is centred on the Nyquist limit, so the flat part ends
+half a transition below it, at about {glue:text}`k_edge_est` cycles per sample,
+which is $\rho\approx{}$ {glue:text}`k_rho_est`.
+
+Kaiser derived both rules empirically for finite impulse response filters
+(Kaiser 1974, and Oppenheim and Schafer, *Discrete-Time Signal Processing*,
+section 7.6). They apply because interpolating at a fractional offset is
+filtering with a shifted kernel, and the in-band ripple of that filter is the
+error plotted above. The rules are approximations, and the measured curve is the
+evidence.
+```
+
+## What margin does the kernel set?
+
+The error is flat enough up to $f=0.38$ and then climbs by a factor of
+{glue:text}`k_ratio` between there and $f=0.40$. sinchole therefore admits a
+grid only when $\rho\le0.76$ on every axis, and calls 0.76 the **margin**. It
+is a chosen value: it is where the measured curve leaves its floor, and it
+matches the Kaiser estimate. Inside the margin the worst-tone error is at most
+{glue}`k_floor`. A smaller margin would lose nothing in accuracy but would
+demand a finer grid; a larger one would meet the climb. {doc}`../practice/admission`
+shows the refusal for a grid outside it.
+
+```{dropdown} Why the worst tone bounds every signal
+A signal that is a sum of tones is read as the sum of the tones' reads, so its
+error is at most the largest tone error times the sum of the tone sizes. The
+worst-tone error is therefore the guarantee for any signal of that bandwidth.
+A random sum of twelve cosines does better, because its tones do not all err in
+the same direction: the worst of 40 such signals at $\rho=0.76$ errs by
+{glue}`k_random_76`, and at $\rho=1$ by {glue:text}`k_random_100`.
 ```
 
 ```{code-cell} python
 :tags: [remove-cell]
-from IPython.display import Markdown
-from myst_nb import glue
-
-
-def tex(value):
-    """Format a number as a LaTeX power of ten."""
-    mantissa, exponent = f"{value:.1e}".split("e")
-    return Markdown(rf"${mantissa}\times10^{{{int(exponent)}}}$")
-
-
-def at(rho, values):
-    return values[np.isclose(rhos, rho)][0]
-
-
-in_margin = rhos <= 0.76
-glue("k_floor", tex(err_kaiser[in_margin].max()), display=False)
-glue("k_typ_floor", tex(err_typical[in_margin].max()), display=False)
-glue("k_w05", tex(at(0.5, err_kaiser)), display=False)
-glue("k_t05", tex(at(0.5, err_trunc)), display=False)
-glue("k_w08", tex(at(0.8, err_kaiser)), display=False)
-glue("k_w09", tex(at(0.9, err_kaiser)), display=False)
-glue("k_w10", f"{at(1.0, err_kaiser):.2f}", display=False)
-glue("k_typ10", f"{at(1.0, err_typical):.2f}", display=False)
-glue("k_trunc_lo", tex(err_trunc[in_margin].min()), display=False)
-glue("k_trunc_hi", tex(err_trunc[in_margin].max()), display=False)
-glue("k_trunc_lo_pct", f"{100 * err_trunc[in_margin].min():.0f}", display=False)
-glue("k_trunc_hi_pct", f"{100 * err_trunc[in_margin].max():.0f}", display=False)
+glue("k_random_76", tex(tc.kernel_error(0.76), 1), display=False)
+num("k_random_100", f"{tc.kernel_error(1.0):.2f}")
 ```
 
-The kernel (solid cyan) holds the worst-tone error below
-{glue}`k_floor` of the tone amplitude for every $\rho$ up to 0.76, then
-falls off a cliff: {glue}`k_w08` at $\rho=0.8$,
-{glue}`k_w09` at $\rho=0.9$ and {glue:text}`k_w10` (the whole
-amplitude) at $\rho=1$. The dashed typical-signal curve sits lower, at
-{glue}`k_typ_floor` or less in the margin, because random amplitudes
-rarely line up, and it is not a bound. The cut sinc (gray) runs from
-{glue:text}`k_trunc_lo_pct` to {glue:text}`k_trunc_hi_pct` percent inside the
-margin. The sinchole reader therefore admits a grid only when
-$\rho\le0.76$ on every axis, and treats $\rho\ge1$ as a separate, harder
-failure. This is the margin, and every later page uses it.
-
-A back-of-envelope estimate predicts both features: Kaiser's window design
-rules give a floor near $1.3\times10^{-6}$ for $\beta=12$, within a factor of
-two of the measured worst tone, and, for a 32-tap kernel, an accurate response
-up to about 0.38 cycles per sample, which is $\rho\approx0.75$.
-
-```{dropdown} The estimate, worked out
-Kaiser's first rule relates the shape parameter to the rejection the window
-achieves, $\beta=0.1102(A-8.7)$, so $\beta=12$ gives $A\approx118$ dB, an
-amplitude ratio near $1.3\times10^{-6}$: the size of the floor. His length
-rule, $N-1=(A-8)/(2.285\,\Delta\omega)$, gives the width of the transition
-from passing to rejecting frequencies for an $N=32$ tap kernel:
-$\Delta\omega\approx1.55$ radians per sample, or 0.25 cycles per sample. The
-flat part of the response therefore ends near $0.5-0.12=0.38$ cycles per
-sample, $\rho\approx0.75$, where the measured cliff begins.
-
-Kaiser derived both rules empirically for finite impulse response filter
-design (Kaiser 1974, and see also Oppenheim and Schafer, *Discrete-Time Signal
-Processing*, section 7.6). They apply here because interpolation at a
-fractional offset is filtering with a shifted kernel: the passband ripple
-$\delta\approx10^{-A/20}$ is both the error on in-band frequencies and the
-leakage of the spectral images at $1-f$ that sampling creates. The rules are
-approximations, and the measured curve above is the evidence. The quantity
-$\rho=2Bh$ used here is the same as $\rho=2f_{\max}$ on the previous page,
-because $B$ is the highest frequency in cycles per source unit and $h$ is the
-spacing in the same source units.
-```
-
-## A two-dimensional read adds 1024 weighted samples
-
-A grid of PSFs is sampled in two source coordinates, and the reader uses the
-product of two one-dimensional kernels, $w(t_x)\,w(t_y)$. A read at one
-detector pixel therefore adds a 32 by 32 block of $1024$ delivered values, each
-multiplied by its weight, and the accuracy rule applies separately along each
-axis. The cost of a read is 1024 multiply-adds per detector pixel,
-independent of how large the grid is.
-
-```{admonition} Predict before reading on
-:class: tip
-The 1024 taps are added in order of decreasing weight. How many are needed
-before the partial sum stays within one part in a thousand of the final read:
-about 30, about 300 or about 1000?
-```
-
-The animation counts the taps one at a time for a planet at
-$(1.3, 0.7)\,\lambda_0/D$ and reads the probe pixel of the toy coronagraph
-(the next page introduces it). On the left, each tap is a marker at its node,
-with area proportional to the size of its weight and color for its sign. Taps
-not yet counted are faint dots. On the right, the running sum of tap weight
-times node value converges onto the final read.
-
-```{code-cell} python
-:tags: [hide-input]
-# Medium gate, ground 4 (a sweep whose tracked mark cannot be matched across a
-# strip), S1: one knob, the count k of taps added, with its value on screen.
-# The tracked mark is the front of counted taps spreading outward from the
-# query while the partial sum settles; 1024 states cannot be matched across a
-# strip, and the claim is the rate of settling, which a still at one k cannot
-# carry. The still below is the end state, k = 1024.
-toy = tc.ToyCoronagraph()
-x_pix = np.asarray(toy.detector_x)
-col = int(np.argmin(np.abs(x_pix - 3.1)))
-row = int(np.argmin(np.abs(x_pix - 0.6)))
-query = np.array([1.3, 0.7])
-grid = ((-6.08, -6.08), (0.38, 0.38), (40, 40))
-
-tx, wx = stencil(jnp.asarray([query[0]]), grid[0][0], grid[1][0])
-ty, wy = stencil(jnp.asarray([query[1]]), grid[0][1], grid[1][1])
-node_x = grid[0][0] + np.asarray(tx[0]) * grid[1][0]
-node_y = grid[0][1] + np.asarray(ty[0]) * grid[1][1]
-tap_xy = np.stack(np.meshgrid(node_x, node_y), axis=-1).reshape(-1, 2)
-tap_weight = np.outer(np.asarray(wy[0]), np.asarray(wx[0])).ravel()
-tap_value = np.asarray(toy.psf(tap_xy))[:, row, col]
-
-by_size = np.argsort(-np.abs(tap_weight), kind="stable")
-partial = np.cumsum((tap_weight * tap_value)[by_size])
-final = partial[-1]
-off = np.abs(partial - final) > 1e-3 * abs(final)
-settled = int(np.nonzero(off)[0].max()) + 2
-counts = np.unique(np.round(np.geomspace(1, 1024, 36)).astype(int))
-frames = np.concatenate([[0, 0], counts, np.full(6, 1024)])
-
-fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4.2), constrained_layout=True,
-                                  gridspec_kw={"width_ratios": [1, 1.1]})
-stencil_view = viz.plot_stencil_2d(query, grid, order="weight", n_taps=0,
-                                   max_area=450.0, ax=left)
-left.set_xlim(-5.5, 8.3)
-left.set_ylim(-5.5, 8.3)
-conv = ep.plot.convergence((tap_weight * tap_value)[by_size], running="sum",
-                           refs=final, ref_labels=["read value"],
-                           show_samples=False, ax=right)
-right.set_xscale("log")
-right.set_xlim(1, 1024 * 3)
-right.set_xlabel(r"taps counted $k$, largest weight first")
-right.set_ylabel("partial sum (probe pixel)")
-count_text = right.text(0.03, 0.93, "", transform=right.transAxes, va="top")
-left.set_title("1024 taps, area is weight", fontsize=10)
-
-
-def draw(fig, k):
-    k = int(k)
-    stencil_view.update(n_taps=k)
-    conv.update(max(k, 1) if k else 0)
-    count_text.set_text(rf"$k$ = {k}" + (rf", sum / read = {partial[k - 1] / final:.4f}" if k else ""))
-
-
-anim = ep.render.animate(fig, draw, frames, fps=10)
-from IPython.display import HTML
-
-HTML(anim.jshtml(dpi=72))
-```
-
-```{code-cell} python
-:tags: [hide-input]
-fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4.2), constrained_layout=True,
-                                  gridspec_kw={"width_ratios": [1, 1.1]})
-viz.plot_stencil_2d(query, grid, order="weight", n_taps=1024, max_area=450.0, ax=left)
-left.set_xlim(-5.5, 8.3)
-left.set_ylim(-5.5, 8.3)
-ep.plot.convergence((tap_weight * tap_value)[by_size], running="sum", refs=final,
-                    ref_labels=["read value"], show_samples=False, ax=right)
-right.set_xscale("log")
-right.set_xlim(1, 1024 * 3)
-right.set_xlabel(r"taps counted $k$, largest weight first")
-right.set_ylabel("partial sum (probe pixel)")
-plt.show()
-print(f"the sum is within 1e-3 of the read from k = {settled} on; "
-      f"largest weight {np.abs(tap_weight).max():.2f}, 1024th {np.abs(tap_weight).min():.1e}")
-```
-
-```{dropdown} Answer
-About 300: in this run the sum stays within $10^{-3}$ of the read from
-$k=337$ on, and it is nowhere near that before $k=30$. The heaviest taps are
-the central lobe and its first sidelobes, and their signs alternate, so the
-partial sum overshoots the read by a factor of several and swings through
-zero before the outer taps pull it in.
-```
-
-The still is the end state, $k=1024$. Taps are ordered by decreasing weight
-so that the convergence is the lesson. The largest weight is 0.70 and the
-smallest is $4\times10^{-12}$, yet the large taps alone do not give the
-answer, because positive and negative lobes nearly cancel and the outer taps
-supply the correction. The marker areas are drawn to scale, so only the
-largest weights are visible, and the cancellation is the reason the kernel
-needs all 32 taps per axis.
-
-## A band of 1 cycle per unit sets a spacing of 0.38
-
-Suppose a function of source position contains no frequency above $B=1$
-cycle per unit, the case the next page derives for a coronagraph with an
-entrance pupil one diameter wide. The Nyquist spacing is $1/(2B)=0.5$, and
-the margin rule $2Bh\le0.76$ gives $h\le0.38$. A grid at that spacing, read
-with the kernel, is expected to reproduce such a function to within
-{glue}`k_floor` of the amplitude per tone, while a grid at the Nyquist
-spacing of 0.5 sits at $\rho=1$, where the worst tone is off by
-{glue:text}`k_w10` of its amplitude and the typical random signal by about
-{glue:text}`k_typ10`.
-
-The measured error assumes the function really is band-limited, that the grid is
-regular and complete, and that the query is at least 15 samples above the
-first node and more than 15 samples below the last, so that its whole
-stencil exists. Break the first and the error is no longer controlled. If you
-break the others, the library refuses the read.
+The guarantee assumes a signal that is exactly band-limited, sampled on a
+regular grid with no gaps, and read at a query whose whole stencil exists: at
+least 15 samples above the first node and more than 15 below the last. If the
+first assumption fails the error is no longer controlled. For the other two, the
+library refuses the read. The error is also a fraction of the signal's total
+amplitude, not of its value at the query. {doc}`band-limits` measures what that
+means for a coronagraph pixel that varies over ten orders of magnitude.
 
 ## Try it
 
-1. Change $\beta$ from 12 to 8 in the `weights` call (copy the formula above
-   into a function). Predict first, using Kaiser's rule: how high does the
-   floor rise, and does the cliff move left or right?
+1. Write the window as a function of $\beta$ (the formula above) and use it
+   as the `kernel=` argument of `tc.kernel_error_worst` for $\beta=8$. Predict
+   first, using Kaiser's rule: how high does the floor rise, and does the cliff
+   move left or right?
    ```{dropdown} Hint
    $A=8/0.1102+8.7\approx81$ dB, an amplitude near $9\times10^{-5}$. The
-   transition narrows, so the cliff moves right.
+   transition narrows, so the flat part ends closer to the Nyquist limit and
+   the cliff moves right.
    ```
-2. Repeat the error curve with 16 taps instead of 32. Before running it,
-   use the length rule to predict where the cliff starts.
+2. Repeat the error curve with $W=8$, a 16-tap kernel (zero beyond 8). Use the
+   length rule to predict where the cliff starts before running it.
    ```{dropdown} Hint
-   Halving $N$ doubles the transition width, to about 0.5 cycles per sample,
-   so the flat response ends near $0.5-0.25=0.25$ cycles per sample:
+   Halving the taps doubles the transition width, to about 0.5 cycles per
+   sample, so the flat response ends near $0.5-0.25=0.25$ cycles per sample:
    $\rho\approx0.5$.
    ```
-3. A source has frequencies up to $B=1.2$ cycles per unit. What spacing does
-   the 0.76 rule require, and how many more grid points does a square grid of
-   fixed size need than at $B=1$?
+3. Predict, then read the figure: at which tone frequency does the cut sinc
+   stop being worse than the kernel?
    ```{dropdown} Hint
-   $h\le0.76/(2\times1.2)=0.317$. The node count per axis scales as $1/h$,
-   so a square grid needs $1.2^2=1.44$ times as many nodes.
-   ```
-4. Predict, then change `query` in the animation cell to $(1.3, 0.0)$, a
-   planet exactly on a row of nodes. How many taps carry a nonzero weight?
-   ```{dropdown} Hint
-   The weight $w(t_y)$ is zero at every integer but one, so one row of 32
-   taps carries the read and the other rows weigh about $10^{-16}$.
+   Where the cyan curve crosses the gray one, at $\rho=$ {glue:text}`k_cross_rho`.
    ```
 
 ## What this page established
 
-A 32-tap Kaiser-sinc kernel reconstructs a band-limited tone to within about
-$2\times10^{-6}$ when $\rho\le0.76$, and the worst-tone error grows by
-orders of magnitude just past that margin. A read on a two-dimensional grid adds 1024 taps whose signs alternate,
-so it settles only after a few hundred of them. The next page asks the question this leaves
-open for a coronagraph: what is the highest frequency in a planet image as
-the planet moves, and so what spacing does a grid need?
+:::{admonition} What perfect interpolation needs
+:class: important
 
-Next: {doc}`band-limits`.
+1. **A band limit.** The signal has no cosine above a known bandwidth
+   $f_{\max}$.
+2. **Dense enough samples.** $\rho=2f_{\max}<1$.
+3. **Weights a program can afford.** The sinc times a Kaiser window, kept to 32
+   taps, holds the worst-tone error below {glue}`k_floor` while
+   $\rho\le0.76$, and loses accuracy beyond it.
+:::
+
+The kernel is a smooth taper of the sinc, and its margin is $\rho=0.76$. The next
+page ({doc}`toy-coronagraph`) introduces the small coronagraph used from here
+on, whose planet images are the signals a grid has to pin down.
+
+Next: {doc}`toy-coronagraph`.

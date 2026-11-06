@@ -6,21 +6,97 @@ mystnb:
   render_markdown_format: myst
 ---
 
-# Reading deliveries through yippy
+# How does a delivery reach sinchole through yippy?
 
-Most users never call sinchole directly. A coronagraph designer delivers a
-directory of FITS files with a JSON manifest, and
-[yippy](https://yippy.readthedocs.io) opens it as a `Coronagraph` whose
-off-axis PSFs come from sinchole. The yippy package owns everything about files (parsing,
-units, hashes, caches and the choice of backend), and sinchole owns the
-grid validation, the reads and their refusals. This page shows the yippy side
-of that division.
+Most users never call sinchole directly. A coronagraph designer sends a
+directory of files, and a user wants off-axis PSFs from it at positions nobody
+propagated. [yippy](https://yippy.readthedocs.io) opens the directory as a
+`Coronagraph` whose off-axis PSFs come from sinchole. The yippy package owns
+everything about files (parsing, units, hashes, caches and the choice of
+backend), and sinchole owns the grid validation, the reads and their refusals.
+This page shows the yippy side of that division.
+
+:::{admonition} The question of this page
+:class: important
+
+What is in a delivery, what does yippy check before sinchole sees it, and
+which choices does a user make? The sections below take the directory, the
+backend choice, the stellar products, the options and the checks in that
+order, and the close fills in the answers.
+:::
 
 :::{note}
 The sinchole backend for yippy is optional and lives behind yippy's `sinc`
 extra (`pip install "yippy[sinc]"`). Enable JAX 64-bit mode before
 constructing a `Coronagraph` with sinc reads.
 :::
+
+## What is a delivery?
+
+A delivery is a directory whose `sinc-delivery.json` manifest (schema
+`sinc-delivery-0.1`) names every file and its SHA-256 hash. A **YIP** (yield
+input package) is the older yippy format, a directory of FITS files for a
+coronagraph's stellar intensity, sky transmission and off-axis PSFs. A
+delivery adds a complete grid of off-axis PSFs and the checks that let
+sinchole admit it. The files of the public starter delivery are listed below,
+each with what it holds.
+
+```text
+sinc-delivery.json                   manifest: frame, layout, symmetry, hashes
+starter_training.csv                 indexed positive-quadrant positions
+starter_checks.csv                   independent interior check positions
+starter_mirror_checks.csv            independent negative-position checks
+mono-000/offax_psf.fits              training images [source, row, column]
+mono-000/offax_psf_offset_list.fits  offsets [source, 2], x then y
+checks/mono-000.fits                 independent check images
+mirror-checks/mono-000.fits          mirror check images
+mirror-report.json                   negative-position and axis comparisons
+legacy-yip/                          stellar and sky products, unchanged
+                                     (needed by Coronagraph)
+```
+
+The training images are the nodes of the grid, one image per propagated
+position. The independent checks are images at positions between the nodes,
+propagated directly, which admission reads and compares. The mirror checks
+are images at negative positions, which test the symmetry that lets the grid
+store only the positive quadrant. The manifest holds everything that is not
+an image: the detector frame, the pixel and normalization conventions, the
+symmetry claim and the **served region**, the positions where the delivery
+permits reads.
+
+The files in this directory are the arguments of sinchole's `admit_grid`. The
+cell below builds the toy delivery of {doc}`first-read`, which has the same
+structure at a smaller size, and prints the shape of each array that yippy
+would load from the files above.
+
+```{code-cell} python
+import jax
+import jax.numpy as jnp
+
+jax.config.update("jax_enable_x64", True)
+
+import sinchole as sc
+import toy_coronagraph as tc
+
+toy_delivery = tc.quadrant_delivery(tc.ToyCoronagraph())
+rows = [
+    ("intensity_nodes", toy_delivery["intensity_nodes"].shape,
+     "offax_psf.fits, with a leading product axis"),
+    ("offsets_xy_lod", toy_delivery["offsets_xy_lod"].shape, "offsets list, x then y"),
+    ("indices_xy", toy_delivery["indices_xy"].shape, "integer indices from the training CSV"),
+    ("mirror_checks", toy_delivery["mirror_checks"].intensity.shape,
+     "mirror-checks/mono-000.fits"),
+    ("lattice", toy_delivery["declared_lattice"].shape_yx, "from the manifest layout"),
+]
+for name, shape, role in rows:
+    print(f"{name:16s} {str(shape):18s} {role}")
+print("admitted:", sc.admit_grid(**toy_delivery).admitted)
+```
+
+Each array is what yippy parses from a file and hands over unchanged, and the
+declarations come from the manifest. The toy delivery passes no `checks`
+argument, so it has no interior check images, and the starter has
+{glue:text}`y_checks` of them plus {glue:text}`y_train` training images.
 
 ## Choosing the interpolation backend
 
@@ -77,6 +153,9 @@ v = load("validation.json")
 glue("y_sinc", Markdown(sci(v["worst_check_error_local_peak"])), display=False)
 glue("y_blend", f"{100 * v['blend_worst_error_local_peak']:.0f}", display=False)
 glue("y_n", str(v["independent_checks"]), display=False)
+glue("y_checks", str(v["independent_checks"]), display=False)
+glue("y_train", str(v["training_nodes"]), display=False)
+glue("y_mirror", str(v["mirror_checks"]), display=False)
 ```
 
 An existing YIP package keeps working through `"blend"` with no change, so
@@ -128,19 +207,46 @@ from yippy.sinc_routing import route_interpolation
 jax.config.update("jax_enable_x64", True)
 
 path = fetch_sinc_starter()
-_, backend, info = route_interpolation(path, "sinc", None, None)
+_, backend, info = route_interpolation(
+    path,
+    requested="sinc",  # strict: raise instead of falling back to blend
+    options=None,  # None means the default SincOptions
+    downsample_shape=None,  # None means no downsampling, the only choice for a delivery
+)
 psf = backend.create_psf(3.9425, 5.415)  # inside the declared corner cell
 print(info.effective)  # "sinc"
 ```
 
-The position lies in the corner cell that the starter declares as served. A
-position outside that cell is refused for this delivery, although the stored
+The router returns three things: the parsed delivery (unused here), the
+backend that serves reads, and the `InterpolationInfo` that records which
+backend was chosen and why. The position lies in the corner cell that the
+starter declares as served, and the next cell checks that with sinchole's own
+`Domain`, which is what the router builds from the manifest. The cell is
+half-open: the lower edge belongs to it and the upper edge does not.
+
+```{code-cell} python
+corner = sc.Domain(
+    "box", "lower_closed_upper_open",
+    jnp.array([[3.8, 5.32], [4.18, 5.70]]), jnp.zeros(2),
+)
+for label, position in (
+    ("the position above", (3.9425, 5.415)),
+    ("on the lower edge", (3.8, 5.415)),
+    ("on the upper edge", (4.18, 5.415)),
+    ("one node below", (3.42, 5.415)),
+):
+    served = bool(corner.contains(jnp.array(position)))
+    print(f"{label:20s} {position}  served: {served}")
+```
+
+A position outside that cell is refused for this delivery, although the stored
 nodes could support it ({doc}`../validation`).
 
 ## Options
 
 `SincOptions` selects a product and passes construction controls through to
-sinchole.
+sinchole. The example narrows the permission region to a box inside the
+starter's served cell.
 
 This example needs a delivery on disk.
 
@@ -152,17 +258,32 @@ import jax.numpy as jnp
 options = SincOptions(
     product_id="mono-000",  # required for multi-plane deliveries
     domain=sc.Domain(  # optional narrower permission region
-        "box", "closed", jnp.array([[-4.0, -4.0], [4.0, 4.0]]), jnp.zeros(2)
+        "box", "closed", jnp.array([[3.85, 5.35], [4.1, 5.65]]), jnp.zeros(2)
     ),
 )
 coro = Coronagraph("path/to/delivery", interpolation="sinc", sinc_options=options)
 ```
 
-A caller domain narrower than the delivery's served region excludes the
-delivered independent checks that fall outside it, and the receipt lists them
-as excluded. Checks outside the delivery's own served region are a data error.
-A bounded `ReadPolicy` never falls back to blend: version 0.1 cannot issue
-bounds, so a bounded request refuses.
+A caller domain may narrow the delivery's served region and never widen it.
+Delivered independent checks that fall outside the narrower region are
+excluded, and the receipt lists them as excluded. A box such as
+$[-4, 4]^2$ would be a mistake for the starter: it lies outside the corner
+cell, so it would exclude every delivered check and serve nothing. Checks
+outside the delivery's own served region are a data error. A bounded
+`ReadPolicy` never falls back to blend: version 0.1 cannot issue bounds, so a
+bounded request refuses.
+
+The cell checks the narrow box against two positions, both inside the served
+cell.
+
+```{code-cell} python
+narrow = sc.Domain(
+    "box", "closed", jnp.array([[3.85, 5.35], [4.1, 5.65]]), jnp.zeros(2)
+)
+for label, position in (("inside both", (3.9425, 5.415)), ("served cell only", (3.81, 5.33))):
+    print(f"{label:17s} {position}  served: {bool(corner.contains(jnp.array(position)))}"
+          f"  in the narrow box: {bool(narrow.contains(jnp.array(position)))}")
+```
 
 ## What yippy checks before routing
 
@@ -186,14 +307,13 @@ Off-axis images keep the delivered units, photon fraction per pixel for a
 pixel-integral delivery, and sinchole applies no normalization of its own.
 Stellar and sky products keep their own frame and pixel scale, which may
 differ from the off-axis frame. The `PIXSCALE` header is in reference
-lambda/D per pixel. An empty header comment means that schema unit, a named
+$\lambda_0/D$ per pixel. An empty header comment means that schema unit, a named
 angular unit (arcsec, mas, deg, rad) is converted, and an unknown unit raises.
 
-## The delivery manifest at a glance
+## Which commands check a delivery before it is sent?
 
-A sinc delivery is a directory whose `sinc-delivery.json` manifest (schema
-`sinc-delivery-0.1`) names every file and its hash. Every manifest key, CSV
-column, FITS HDU and header keyword is defined on yippy's
+Every manifest key, CSV column, FITS HDU and header keyword of the directory
+above is defined on yippy's
 [schema page][schema], and this page does not repeat them. The
 designer-facing checklist is on {doc}`designers`, the step-by-step recipe is
 on {doc}`delivery-recipe`, and the `yippy-sinc` command line has two
@@ -208,19 +328,22 @@ commands that a designer needs.
   arithmetic, and exits 0 on a pass, 1 on a failure and 2 on a usage error.
   The Python form is `yippy.sinc_tools.validate()`.
 
-```text
-sinc-delivery.json                   manifest: frame, layout, symmetry, hashes
-starter_training.csv                 indexed positive-quadrant positions
-starter_checks.csv                   independent interior check positions
-starter_mirror_checks.csv            independent negative-position checks
-mono-000/offax_psf.fits              training images [source, row, column]
-mono-000/offax_psf_offset_list.fits  offsets [source, 2], x then y
-checks/mono-000.fits                 independent check images
-mirror-checks/mono-000.fits          mirror check images
-mirror-report.json                   negative-position and axis comparisons
-legacy-yip/                          stellar and sky products, unchanged
-                                     (needed by Coronagraph)
-```
+## What did this page establish?
+
+The question was what a delivery holds, what yippy checks before sinchole
+sees it, and which choices a user makes. The answers, filled in:
+
+- **A delivery** is a manifest plus the training images ({glue:text}`y_train`
+  for the starter), independent check images ({glue:text}`y_checks`) and
+  mirror check images ({glue:text}`y_mirror`), and the legacy stellar and sky
+  products that `Coronagraph` needs.
+- **yippy checks** every hash, header, layout and metadata declaration before
+  it picks a backend, so a damaged delivery never reaches a fallback.
+- **The user chooses** `"blend"`, `"sinc"` or `"auto"`, and a quadrant
+  delivery never falls back to blend.
+- **A caller domain** can only narrow the served region the delivery declares.
+
+The next page asks what admission refuses and why.
 
 Next: {doc}`admission`.
 

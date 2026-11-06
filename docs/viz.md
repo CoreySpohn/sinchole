@@ -11,8 +11,9 @@ reads, receipts) on top of [eyepiece](https://eyepiece.readthedocs.io). It
 is an optional extra, `pip install "sinchole[viz]"`, and importing sinchole
 never imports it. Every function takes either the sinchole object or plain
 arrays, draws into an `ax` you pass or a new figure, and returns an eyepiece
-`PlotResult`. Every function except `plot_kernel` and `plot_spacing_rule`
-also provides an `update` method that redraws in place for animations. The
+`PlotResult`. Every function except `plot_kernel`, `plot_spacing_rule` and
+`plot_check_residuals` also provides an `update` method that redraws in place
+for animations. The
 figures on the theory and practice pages are built from these functions.
 
 :::{admonition} What the gallery cells need
@@ -20,7 +21,8 @@ figures on the theory and practice pages are built from these functions.
 
 The cells for `plot_read`, `plot_residual`, `plot_check_residuals` and
 `plot_band_spectrum` run on the toy coronagraph in `docs/toy_coronagraph.py`
-of the repository. That file is documentation scaffolding and not part of the
+of the repository (a Lyot coronagraph computed on the page, described on
+{doc}`theory/band-limits`). That file is documentation scaffolding and not part of the
 package: it supplies images and a delivery to draw. Every other cell needs
 only sinchole and eyepiece.
 :::
@@ -42,8 +44,10 @@ hwostyle.use("dark")
 
 ## `plot_kernel`
 
-The Kaiser-sinc weights against offset from the query, with the ideal sinc
-behind them and the support edges at $\pm16$ samples.
+The Kaiser-sinc weights ({doc}`foundations/sinc-interpolation`, {doc}`theory/kernel`)
+against offset from the query, with the ideal sinc behind them and the support
+edges at $\pm16$ samples. Look at the tails: the sinc keeps oscillating past the
+edges, and the tapered kernel decays smoothly to zero at them.
 
 ```{code-cell} python
 result = viz.plot_kernel()
@@ -52,8 +56,11 @@ plt.show()
 
 ## `plot_stencil`
 
-One axis of a read: the 32 stencil taps and their weights at a query, here
-on a grid of 30 stored nodes so that taps past the edge show as hollow.
+One axis of a read: the 32 stencil taps and their weights at a query
+({doc}`foundations/sinc-interpolation`), here on a grid of 30 stored nodes. Look at
+the hollow stems: they are taps at node indices below zero, before the first
+stored node, and a read with such taps is refused unless the grid is a quadrant
+that reads them by mirror symmetry.
 
 ```{code-cell} python
 fig, ax = plt.subplots(figsize=(7, 2.4), constrained_layout=True)
@@ -63,11 +70,14 @@ plt.show()
 
 ## `plot_stencil_2d`
 
-The 1024 taps of one read over the node lattice, marker area proportional to
-the weight and color for its sign. Taps are counted largest first with
-`order="weight"`, and `n_taps` and `fold` (quadrant lattices only) set how
-many are counted and how far negative-node taps have slid onto the stored
-nodes they read. This cell needs no delivery, only a lattice.
+The 1024 taps of one read over the node lattice (the 32 by 32 block of the
+stencil in two dimensions), marker area proportional to the weight and color for
+its sign. Look at the few large markers near the query: most of the 1024 taps
+are too small to see. Taps are counted largest first with `order="weight"`.
+`n_taps` sets how many are counted, and `fold` (quadrant lattices only, 0 to 1)
+slides each tap that lies at a negative node onto the stored node it reads
+through the mirror symmetry of {doc}`theory/quadrant-symmetry`. This cell needs
+no delivery, only a lattice.
 
 ```{code-cell} python
 fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
@@ -82,7 +92,9 @@ plt.show()
 ## `plot_coverage`
 
 Stored nodes, mirrored nodes of a quadrant grid, the region where complete
-stencils exist, a domain and one read's stencil rectangle.
+stencils exist (the served region of the {doc}`reference/glossary`), a domain
+and one read's stencil rectangle. Look at where the stencil rectangle sits
+against the region: a read is served only if the rectangle lies inside it.
 
 ```{code-cell} python
 lattice = sc.Lattice(jnp.zeros(2), jnp.full(2, 0.38), (31, 31))
@@ -95,7 +107,9 @@ plt.show()
 ## `plot_spacing_rule`
 
 The chain from support width to the delivered grid: bandwidth, largest
-admissible spacing, node count and the quadrant lattice. Pass physical inputs,
+admissible spacing, node count and the quadrant lattice, drawn panel by panel on
+the {doc}`index` page and explained on {doc}`theory/band-limits` (bandwidth) and
+{doc}`theory/quadrant-symmetry` (node count and grid). Pass physical inputs,
 or a `Products` and a `Lattice` to draw a delivery. This cell needs neither.
 
 ```{code-cell} python
@@ -107,8 +121,10 @@ plt.show()
 ## `plot_read` and `plot_residual`
 
 A read on a logarithmic scale in $\lambda_0/D$, and its difference from a
-reference image relative to the local peak, with the radius used for the
-local peak drawn around the source.
+reference image relative to the local peak (the brightest reference pixel
+within 1 $\lambda_0/D$ of the source, see the {doc}`reference/glossary`), with that
+radius drawn around the source. Look at the right panel: the residual is a
+small fraction of the local peak.
 
 ```{code-cell} python
 toy = tc.ToyCoronagraph()
@@ -130,7 +146,10 @@ plt.show()
 ## `plot_check_residuals`
 
 The empirical evidence in an admission receipt: interior checks, mirror
-checks and axis invariance, with exact zeros gathered at the left edge.
+checks and axis invariance, with exact zeros gathered at the left edge as
+triangles. The dashed lines mark the target of $10^{-5}$ for the interior checks
+and the symmetry tolerance of $10^{-6}$ for the other two
+({doc}`validation`, {doc}`reference/numerical-contract`).
 
 ```{code-cell} python
 admission = sc.admit_grid(**delivery)
@@ -141,7 +160,10 @@ plt.show()
 ## `plot_band_spectrum`
 
 The amplitude spectrum of a function sampled along source position, with
-the pupil band shaded.
+the pupil band shaded. The frequency axis is in cycles per $\lambda_0/D$ of
+source motion, and the call below passes the sample step 0.05 and a bandwidth
+of 1 in those units ({doc}`foundations/sampling`). Look for the spectrum falling
+away to the right of the shaded band.
 
 ```{code-cell} python
 s = np.arange(-512, 512) * 0.05

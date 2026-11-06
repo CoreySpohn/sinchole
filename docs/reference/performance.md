@@ -13,12 +13,19 @@ trial, so the cost of one read decides whether reading between grid nodes is
 affordable. This page reports what version 0.1 costs for the physicaloptix
 starter delivery on one laptop CPU, what a batch of $10^4$ positions costs,
 and how that compares with yippy's current blend interpolation on the same
-positions. Every number comes from `docs/scripts/benchmark.py`, which writes
-`_static/validation/benchmark.json` beside the validation figures. Rerun it on
-your own machine before relying on a number.
+positions. Every measured number comes from `docs/scripts/benchmark.py`, which
+writes `_static/validation/benchmark.json` beside the validation figures. Rerun
+it on your own machine before relying on a number.
+
+A read here is one 128 by 128 pixel image. Timings are *steady* when the code
+has already been compiled by `jax.jit` and run once, *first call* when they
+include that compile, and *resident* memory is what the process holds in RAM
+(resident set size, RSS).
+
 
 ```{code-cell} python
 :tags: [remove-cell]
+import math
 import sys
 
 sys.path.insert(0, "../scripts")
@@ -26,6 +33,7 @@ from IPython.display import Markdown, display
 from validation_tables import load, sci
 
 b = load("benchmark.json")
+nodes = load("validation.json")["training_nodes"]
 m = b["machine"]
 f32, f64, yp = b["float32"], b["float64"], b["yippy_blend"]
 ms = lambda s: f"{1e3 * s:.1f} ms"
@@ -40,7 +48,7 @@ bs32_first = f32["batch_small_first_call_seconds"]
 display(Markdown(
     f"- Machine: {m['chip']}, {m['total_number_of_cores']} cores, {m['memory']}.\n"
     f"- Software: Python {m['python']}, JAX {m['jax']} on the {m['backend']} backend.\n"
-    f"- Delivery: 837 float32 nodes of 128 by 128 pixels, {f32['resident_mib']:.0f} MiB resident "
+    f"- Delivery: {nodes} float32 nodes of 128 by 128 pixels, {f32['resident_mib']:.0f} MiB resident "
     f"({f64['resident_mib']:.0f} MiB if stored as float64).\n"
     f"- Load: the machine was shared with other jobs (load average "
     f"{m['load_average_at_start'][0]:.1f} at the start and {b['load_average_after_reads'][0]:.1f} "
@@ -82,17 +90,47 @@ display(Markdown("| Quantity | Result | Note |\n|---|---|---|\n" + "\n".join(f"|
 
 ```{code-cell} python
 :tags: [remove-input]
-ratio = yp["batch"]["seconds_per_read"] / f32["batch_10000"]["seconds_per_read"]
-ratio64 = yp["batch"]["seconds_per_read"] / f64["batch_10000"]["seconds_per_read"]
+PIXELS = 128 * 128
+TAPS = 32 * 32
+single_ratio = f32["single_steady_median_seconds"] / yp["single_steady_median_seconds"]
+batch_ratio = bs32["seconds_per_read_median"] / yp["batch"]["seconds_per_read"]
+macs = PIXELS * TAPS
+flops_sinc = 2 * macs
+fft_flops = {n: 4 * 2 * 5 * n * n * math.log2(n * n) for n in (128, 256)}
+traffic = macs * 4  # float32 node values gathered once per tap and pixel, in bytes
 display(Markdown(
-    f"Over $10^4$ positions the sinc read took {per(f32['batch_10000'])} per read with float32 "
-    f"storage and {per(f64['batch_10000'])} with float64 storage, and the yippy blend took "
-    f"{per(yp['batch'])} per read. The blend is faster than the sinc read by a factor of "
-    f"{1 / ratio:.0f} (float32) or {1 / ratio64:.0f} (float64). The blend reads four 128 by 128 "
-    f"images and shifts each by an FFT phase ramp, about $10^{7}$ operations per read "
-    f"(four padded forward and inverse transforms) against $1.7\\times10^{7}$ for the sinc "
-    f"stencil. The two estimates are of the same order, so the blend's speed comes from the "
-    f"efficiency of FFTs and not from fewer operations."
+    f"A steady single read took {ms(f32['single_steady_median_seconds'])} with float32 storage "
+    f"and {ms(f64['single_steady_median_seconds'])} with float64 storage, and the yippy blend "
+    f"took {ms(yp['single_steady_median_seconds'])}. The blend is faster than the sinc read by a "
+    f"factor of {single_ratio:.0f} (float32). Over {bs32['positions']} positions in a batch the "
+    f"sinc read took {ms(bs32['seconds_per_read_median'])} per read and the blend over "
+    f"{yp['batch']['positions']} positions took {per(yp['batch'])}, a factor of {batch_ratio:.0f}. "
+    f"The $10^4$ batch in the table is not used for this comparison because its time includes "
+    f"the compile. For scale, $10^6$ reads at the steady float32 time need "
+    f"{1e6 * f32['single_steady_median_seconds'] / 3600:.0f} hours on one core, an illustration "
+    f"and not the requirement of any particular yield code."
+))
+```
+
+## Is the sinc read limited by arithmetic or by memory?
+
+```{code-cell} python
+:tags: [remove-input]
+t_read = f32["single_steady_median_seconds"]
+display(Markdown(
+    f"One read sums {TAPS} products for each of {PIXELS} pixels, {macs:.1e} multiply-adds or "
+    f"{flops_sinc:.1e} floating-point operations. It also gathers {macs:.1e} float32 node values, "
+    f"{traffic / 1e6:.0f} MB. In {1e3 * t_read:.0f} ms that is {flops_sinc / t_read / 1e9:.2f} "
+    f"Gflop/s of arithmetic and {traffic / t_read / 1e9:.1f} GB/s of reads. "
+    "The blend does four forward and four inverse FFTs of 5 N log2 N operations each, "
+    f"{fft_flops[128]:.1e} operations if the images are padded to 128 by 128 and "
+    f"{fft_flops[256]:.1e} if padded to 256 by 256 (the padding is not recorded here), "
+    "so the two methods do about the same amount of arithmetic, while the blend runs "
+    f"{single_ratio:.0f} times faster. The operation count therefore does not explain the "
+    "difference. Neither rate above is compared with this chip's peak, because the "
+    "benchmark did not measure one, so this page cannot say whether the sinc read is limited "
+    "by arithmetic, by gathering the nodes from memory or by the compiled code. Finding out "
+    "is open work."
 ))
 ```
 
@@ -106,22 +144,27 @@ display(Markdown(
     f"- After the float32 reads, including the $10^4$ batch: {f32['batch_10000']['peak_rss_mib_after']:.0f} MiB.\n"
     f"- After the float64 reads: {f64['batch_10000']['peak_rss_mib_after']:.0f} MiB.\n"
     f"- A batch of $10^4$ returns {f32['batch_10000']['output_gib']:.2f} GiB of float64 images, "
-    f"so it needs a memory budget above the default one gibibyte of output, "
-    f"so the benchmark sets two. Chunk larger campaigns."
+    f"so the output ceiling of its `MemoryBudget` must exceed that, and the benchmark sets "
+    f"2 GiB (`MemoryBudget` has no defaults). Chunk larger campaigns."
 ))
 ```
 
 The peak figures are the process's peak resident set size after each stage, so
-they only rise. The resident delivery itself is the first row of the table
-above, and the output of a batch dominates everything else.
+they only rise. The resident delivery itself is the Delivery line under "Where the numbers were
+taken", and the output of a batch dominates everything else.
 
 ## What to take from this
 
-Reads cost tens of milliseconds on a loaded CPU because each pixel sums 1024
-products, so one read is about $1.6\times10^4\times1024\approx1.7\times10^{7}$
-multiply-adds. At a few $10^{9}$ operations per second that is the order of
-10 ms, and the measured 20 to 50 ms on a busy machine is within a few times
-of that estimate, so the cost is mostly the arithmetic. Batches of positions are the unit to optimize, and a GPU should help
-most there, but no GPU measurement exists (GPU untested).
+```{code-cell} python
+:tags: [remove-input]
+display(Markdown(
+    f"A steady read costs {ms(f64['single_steady_median_seconds'])} to "
+    f"{ms(f32['single_steady_median_seconds'])} on a loaded CPU, and it is {single_ratio:.0f} "
+    "times slower than yippy's blend. The measured single-read times ranged from "
+    f"{ms(f64['single_steady_min_seconds'])} to {ms(f32['single_steady_max_seconds'])} across "
+    "rounds, which is the load. Batches of positions are the unit to optimize, and a GPU "
+    "might help most there, but no GPU measurement exists (GPU untested)."
+))
+```
 
 Next: the {doc}`../validation` page shows what those reads are worth.

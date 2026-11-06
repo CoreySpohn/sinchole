@@ -8,14 +8,17 @@ mystnb:
 
 # How we know: the physicaloptix starter delivery
 
-The theory pages predict that a grid at $h=0.38\,\lambda_0/D$ read with the
-32-tap Kaiser-sinc kernel reproduces a coronagraph's planet image to about
-one part in a million of the local peak. A prediction from a toy model is not
-evidence about a real design, so sinchole version 0.1 was tested against a
-delivery made the way a designer would make one: independent propagations of
-a real coronagraph, compared with reads at positions the grid never saw. The
-question for this page is how far the measured million-fold agreement
-carries, and which denominator it is measured against.
+The {doc}`theory/kernel` page measures the 32-tap Kaiser-sinc kernel's worst
+error on a single cosine at about two parts in a million, as long as the
+oversampling factor $\rho$ of {doc}`foundations/sampling` stays at or below
+0.76. For a coronagraph that means a grid spacing of $h=0.38\,\lambda_0/D$
+({doc}`theory/band-limits`). A prediction from a toy model is not evidence
+about a real design, so sinchole version 0.1 was tested against a delivery
+made the way a designer would make one: independent propagations of a real
+coronagraph, compared with reads at positions the grid never saw. The question
+for this page is how far the measured agreement, about one to two parts per
+million of the planet's brightest nearby pixel, carries, and which denominator
+it is measured against.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -33,6 +36,12 @@ b = load("benchmark.json")
 with open(static_dir() / "qualification_extended.csv") as handle:
     rows = list(csv.DictReader(handle))
 radii = [float(r["r_lod"]) for r in rows]
+
+# Design inputs of the starter delivery (see practice/declarations).
+H = 0.38
+DECLARED_L = (0.946, 0.982)  # declared illuminated widths along x and y, in D
+NX, NY = 27, 31
+rho_x, rho_y = (2 * width * H for width in DECLARED_L)
 ```
 
 ## The delivery
@@ -44,15 +53,17 @@ package at a single wavelength. The delivery follows {doc}`practice/designers`:
 ```{code-cell} python
 :tags: [remove-input]
 display(Markdown(
-    f"- {v['training_nodes']} training PSFs on a 27 by 31 positive quadrant at spacing "
-    "0.38 $\\lambda_0/D$, 128 by 128 pixels of 0.25 $\\lambda_0/D$, stored in float32.\n"
+    f"- {v['training_nodes']} nodes (PSFs) on a {NX} by {NY} positive quadrant at spacing "
+    f"{H} $\\lambda_0/D$, 128 by 128 pixels of 0.25 $\\lambda_0/D$, stored in float32.\n"
     f"- {v['independent_checks']} independent interior checks inside the corner cell "
-    "$3.8\\le s_x<4.18$, $5.32\\le s_y<5.70$, propagated directly in float64. The 27 by 31 "
-    "nodes give complete mirrored stencils for every $|s|$ below $(4.18, 5.70)$, so reads are "
-    "supported anywhere in that mirrored box. The rehearsal declares only the corner cell as "
+    "$3.8\\le s_x<4.18$, $5.32\\le s_y<5.70$, propagated directly in float64. The "
+    f"{NX} by {NY} nodes give complete mirrored stencils (the 32 by 32 taps of "
+    "{doc}`foundations/sinc-interpolation`) for every $|s|$ below $(4.18, 5.70)$, so reads are "
+    "supported anywhere in that mirrored box. This starter delivery declares only the corner cell as "
     "its served region, so reads elsewhere refuse for this delivery, and a delivery may declare "
     "the whole box. This cell is the one the checks cover, and it straddles the design inner "
-    f"working angle of {q['design_iwa_lod']} $\\lambda_0/D$.\n"
+    f"working angle of {q['design_iwa_lod']} $\\lambda_0/D$ (the separation at which the "
+    "coronagraph is meant to start working).\n"
     f"- {v['mirror_checks']} independent mirror checks at negative positions. A stored base with "
     "both indices nonzero has three signed counterparts and a base on an axis has one, so "
     f"{v['mirror_bases_both_indices_nonzero']} bases times 3 plus "
@@ -61,23 +72,35 @@ display(Markdown(
 ))
 ```
 
-The check positions were chosen before any read, and the comparison metric
-and the target of $10^{-5}$ were fixed in advance. The `yippy-sinc validate`
-command on the starter delivery reports PASS, with sampling margins $\rho$ of
-0.7190 and 0.7463 on the two axes against the limit of 0.76, and all 58 stored
-axis images exactly invariant under reflection. The plan used a support width
-$L=1$, which gives $\rho=0.76$ on both axes. The declaration is smaller, 0.946
-by 0.982 $D$ at $\lambda_0$ equal to the shortest sampled wavelength, so the
-margins are $2\times0.946\times0.38=0.7190$ along $x$ and
-$2\times0.982\times0.38=0.7463$ along $y$.
+```{code-cell} python
+:tags: [remove-input]
+worst_local = q["all"]["sinc"]["local_peak"]["worst"]
+display(Markdown(
+    "The check positions were chosen before any read, and the comparison metric and the "
+    "target of $10^{-5}$ of the local peak were fixed in advance. The target is the "
+    f"accuracy the library was designed to meet, about {1e-5 / worst_local:.0f} times the worst "
+    "local-peak error measured below. The `yippy-sinc validate` command on the starter "
+    f"delivery reports PASS, with oversampling factors $\\rho$ of {rho_x:.4f} and "
+    f"{rho_y:.4f} on the two axes against the limit of 0.76, and all {NX + NY} stored axis "
+    f"images ({NX} along one axis and {NY} along the other) exactly invariant under "
+    "reflection. The plan used a support width $L=1$, which gives $\\rho=2\\times1\\times"
+    f"{H}={2 * H:.2f}$ on both axes. The declaration is smaller, {DECLARED_L[0]} by {DECLARED_L[1]} $D$ "
+    "(a monochromatic delivery, so the reference wavelength is the shortest sampled one), "
+    f"so $\\rho=2\\times{DECLARED_L[0]}\\times{H}={rho_x:.4f}$ along $x$ and "
+    f"$2\\times{DECLARED_L[1]}\\times{H}={rho_y:.4f}$ along $y$, which leaves margins of "
+    f"{0.76 - rho_x:.3f} and {0.76 - rho_y:.3f} under the limit."
+))
+```
 
-## What the 16 starter checks showed
+## What the starter checks showed
 
-Three metrics are reported for every read, and each one uses all 16384 pixels
-of the image:
+Three metrics are reported for every read, and each one uses all 128 by 128
+pixels of the image. The first is the one used on the landing page, and the
+other two ask harder questions:
 
-- Local peak: the largest absolute pixel difference, over the brightest
-  direct pixel within 1 $\lambda_0/D$ of the source.
+- Local peak: the largest absolute pixel difference between the read and the
+  direct propagation, divided by the brightest direct pixel within
+  1 $\lambda_0/D$ of the source.
 - Pixel brightest: the largest over pixels of the absolute difference divided
   by that pixel's brightest stored value, taken over the quadrant and its
   three reflections. A pixel that is dim at every stored source position can
@@ -100,7 +123,7 @@ display(Markdown(
     f"| Same worst check, error over each pixel's brightest stored value | "
     f"{sci(v['worst_check_error_pixel_brightest'])} | see the diagnosis below |\n"
     f"| yippy blend, worst of the same checks, error over local peak | "
-    f"{sci(v['blend_worst_error_local_peak'])} | one planet core misplaced by a fraction of a node |"
+    f"{sci(v['blend_worst_error_local_peak'])} | the dipole in the figure below suggests one planet core misplaced by a fraction of a node |"
 ))
 ```
 
@@ -112,9 +135,12 @@ delivery from its manifest, admits it with sinchole and writes
 :alt: Four panels around the worst interior check near 4 and 5.4 lambda0 over D. The direct propagation and the sinchole read look identical. The sinchole residual panel is blank at a color scale of one part in a million of the local peak. The blend residual shows a dipole across the planet core.
 :width: 100%
 
-Compare the two residual panels, each on its own color scale. The sinchole
-residual has no structure at the planet core, while the blend residual is a
-dipole there, because blend interpolation cannot place a core between nodes.
+Look at the two right panels, each on its own color scale: the labels give the
+largest error over the local peak (about a millionth for sinchole, a few
+hundredths for the blend). The sinchole residual has no structure at the planet
+core, while the blend residual is a dipole there. The scales differ by several
+orders of magnitude, so a residual of the blend's size would fill the
+sinchole panel with color.
 ```
 
 ```{figure} _static/validation/check_residuals.png
@@ -123,13 +149,15 @@ dipole there, because blend interpolation cannot place a core between nodes.
 
 Find where the independent checks sit against the $10^{-5}$ target on the top
 rail. All of them fall below it, and every mirror and axis check is exactly
-zero.
+zero, drawn as a triangle at the left edge. The lower two rails use the
+symmetry tolerance of $10^{-6}$ that admission enforces
+({doc}`reference/numerical-contract`).
 ```
 
 ## Does the error hold between the checks?
 
-Sixteen positions cannot speak for a continuum, so the evidence was widened
-before any claim was made. A seeded set of positions was drawn inside the
+The starter checks are few, and the positions a planet can take form a
+continuum, so the evidence was widened before any claim was made. A seeded set of positions was drawn inside the
 served cell and read by sinchole and by yippy's blend interpolation, and each
 read was compared with a direct float64 propagation.
 
@@ -148,17 +176,21 @@ display(Markdown(
     "use, so \"inside\" never means behind a hard occulter.\n"
     "- The three tables below are radius bins that re-sort the same reads by source radius. They "
     "are not the four draw groups above, and their counts differ from the group sizes.\n"
-    f"- Photometric aperture radius {q['aperture_radius_lod']} $\\lambda_0/D$."
+    f"- Photometric aperture radius {q['aperture_radius_lod']} $\\lambda_0/D$, and a local-peak radius "
+    "of 1 $\\lambda_0/D$. Both are fixed values in the check scripts. The first three groups "
+    "target the separations around the inner working angle, and the random group samples the "
+    "cell uniformly."
 ))
 ```
 
 A prediction before the tables: will the blend's median error over the local
 peak, the same metric used for sinchole, be near $10^{-3}$, near $10^{-1}$,
-or near 1?
+or near 1? The first figure on this page showed the blend's error at one position.
 
 ````{dropdown} Answer
 The middle choice, a few percent to ten percent. The blend median over the
-local peak is given in the second set of tables below. The blend gets the planet
+local peak is given in the second set of tables below and in the sentence after
+the last figure. The blend gets the planet
 core's brightness roughly right and its position wrong, so the error is a
 fraction of the core and not the whole of it.
 ````
@@ -197,9 +229,31 @@ display(Markdown(bin_tables(q, "blend", radii)))
 :width: 100%
 
 Look at the vertical gap between the two clouds in each panel. The cyan
-sinchole reads stay near their floor across the inner working angle line, and
-the pink blend reads sit far above, so the separation does not depend on
-which metric or which radius is chosen.
+sinchole reads stay near their floor across the gray line at the design inner
+working angle, and the pink blend reads sit far above. The few points far
+below each cloud are reads that lie almost on a node, explained in the text
+below.
+```
+
+```{code-cell} python
+:tags: [remove-input]
+def node_distance(x, y):
+    """Distance in lambda0/D from a position to the nearest node of the lattice."""
+    dx = abs(x / H - round(x / H)) * H
+    dy = abs(y / H - round(y / H)) * H
+    return (dx**2 + dy**2) ** 0.5
+
+
+on_node = [
+    r for r in rows if node_distance(float(r["x_lod"]), float(r["y_lod"])) < 0.01 * H
+]
+display(Markdown(
+    f"{len(on_node)} of the reads lie within {0.01 * H:.4f} $\\lambda_0/D$ (one hundredth of a "
+    "node spacing) of a node. A read exactly on a node returns that node, so both methods are "
+    "nearly exact there, and these are the lowest point of each cloud in the figure. The "
+    "separation between the clouds does not depend on the metric or the radius, but it does "
+    "depend on how far the read lies from a node."
+))
 ```
 
 ```{code-cell} python
@@ -250,7 +304,7 @@ display(Markdown(
     f"{reach['y']:.3f}, at most {over:.0f} percent past the edges, inside the guard lobe of the "
     "windowed estimator. | not the cause: the overshoot is within the estimator's resolution and "
     "carries almost no energy |\n"
-    f"| Propagation noise | Levels of propagator resolution differ by "
+    f"| Propagator resolution | Two resolution levels of the same propagator (level 0 and level 2) differ by "
     f"{sci(min(r['level0_vs_level2_over_local_peak'] for r in cell_lv))} to "
     f"{sci(max(r['level0_vs_level2_over_local_peak'] for r in cell_lv))} of the "
     "local peak at the positions in the cell, a smooth model change far above the error being "
@@ -267,14 +321,16 @@ display(Markdown(
 The first row says storing the nodes in float64 leaves the error unchanged, so
 it is not stored rounding. The third row needs one sentence: a different
 resolution of the same propagator moves every pixel smoothly by far more than
-$10^{-6}$, so noise at that level cannot be what the kernel is reading.
+$10^{-6}$, so a scatter of $10^{-6}$ in the nodes would be invisible against
+that smooth change, and the finely sampled exact propagation shows the same
+error without any such scatter.
 
 ```{figure} _static/validation/floor_diagnosis.png
 :alt: Two panels of one-axis read error against source position, along x on the left and along y on the right. The cyan curve, error over each pixel's brightest stored value, is near 4 times 10^-7 below a source position of about 1.5, then climbs to about 6 times 10^-6 at the edge of the shaded cell. The pink curve, error over each pixel's peak response, stays flat near 4 times 10^-7 everywhere.
 :width: 100%
 
-Follow the cyan curve into the shaded cell and then look at the pink curve
-beneath it. The cyan error climbs only where the pixel's stored values become
+Follow the cyan curve into the shaded cell (the declared served cell along each
+axis) and then look at the pink curve beneath it. The cyan error climbs only where the pixel's stored values become
 tiny compared with the response it would have at its own peak. The pink error,
 which uses the pixel's peak response as denominator, does not move.
 ```
@@ -327,7 +383,7 @@ peak_all = max(
 )
 display(Markdown(
     "| Denominator | Worst error over all reads | What it means |\n|---|---|---|\n"
-    f"| Local peak | {sci(s['local_peak']['worst'])} | one part in a million of the planet core, "
+    f"| Local peak | {sci(s['local_peak']['worst'])} | one to two parts per million of the planet core, "
     f"measured, against a kernel worst single tone of {sci(floor)} |\n"
     f"| Pixel's brightest stored value | {sci(s['pixel_brightest']['worst'])} | "
     "a few parts in a million, on pixels the quadrant barely lights |\n"
@@ -337,32 +393,46 @@ display(Markdown(
 ))
 ```
 
-So the statement "about one part in a million" holds when the denominator is
-the local peak, the brightest pixel near the planet. It does not hold per
-pixel against the stored brightest value, where the worst is a few parts
-in a million. Three different floors appear on these pages and they should not
-be mixed. The kernel's worst single tone, measured on the {doc}`theory/kernel`
-page, is the largest error one cosine at the band edge can suffer. The error
-over a pixel's peak response, measured above, is lower because a real
-response spreads its amplitude over many frequencies and most of it sits well
-inside the band. The error over the local peak, measured over the 296
-reads, is between them. They agree to within a factor of a few, which is the
-agreement the theory predicted.
+```{code-cell} python
+:tags: [remove-input]
+display(Markdown(
+    "So the headline, one to two parts per million, holds when the denominator is the local "
+    "peak, the brightest pixel near the planet. It does not hold per pixel against the stored "
+    f"brightest value, where the worst is {sci(s['pixel_brightest']['worst'])}."
+))
+```
+
+Three different floors appear on these pages, and they should not be mixed.
+
+```{code-cell} python
+:tags: [remove-input]
+display(Markdown(
+    "- The kernel's worst single tone, measured on the {doc}`theory/kernel` page, is the "
+    f"largest error one cosine in the band can suffer: {sci(floor)}.\n"
+    "- The error over the local peak, measured over "
+    f"the {q['all']['n']} reads, is {sci(s['local_peak']['worst'])}.\n"
+    f"- The error over a pixel's peak response, measured above, is {sci(peak_all)}. It is "
+    "lowest because a real response spreads its amplitude over many frequencies, and most of "
+    "it sits well inside the band (a reading of the data, not measured separately).\n\n"
+    f"The three lie within a factor of {floor / peak_all:.0f} of one another, ordered as "
+    "peak response, local peak, tone. The kernel page does not predict this ordering, so it "
+    "is an observation here."
+))
+```
 
 The mirror checks are exactly zero because the physicaloptix propagation is
 exactly symmetric under the declared reflections, which is what the
 conjugation argument of {doc}`theory/quadrant-symmetry` predicts for a real
-apodizer, a real Lyot stop and a hard occulting disk. Through yippy
-(`Coronagraph(path, interpolation="sinc")`), the same checks pass the same
-target.
+apodizer, a real Lyot stop and a hard occulting disk. This page does not
+repeat the checks through yippy; {doc}`practice/yippy` shows that call.
 
 ## What this does not establish
 
-- One cell, one wavelength, one design. All 16 checks and all 296 qualification
+- One cell, one wavelength, one design. All starter checks and all qualification
   reads lie in the declared corner cell, near the inner working angle. The nodes
   support reads anywhere in the mirrored box, but this delivery declares only
   that cell, and reads elsewhere are unqualified.
-- Positions are seeded draws, not a proof over the continuum. The 200 random
+- Positions are seeded draws, not a proof over the continuum. The random
   positions sample the typical error. The worst case over those draws is
   stated above, and the worst case over the continuum can only be larger.
 - The truth is a direct float64 propagation by the same code that made the
