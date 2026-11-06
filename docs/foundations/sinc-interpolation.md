@@ -375,10 +375,12 @@ are many of them.
 ```
 
 The animation rebuilds the test signal from sinc copies, adding the samples
-nearest $t=0.3$ first. Each new copy (yellow) is the sinc moved to one sample
-and scaled by its value, and the pink curve is the running sum. Watch the
-pink curve lock onto each sample as soon as that sample's copy arrives, while
-the stretches between samples keep shifting as more distant copies arrive.
+nearest $t=0.3$ first. The top panel shows the copy added at each step
+(yellow): the sinc moved to one sample and scaled by that sample's value.
+The panel below shows the sum of every copy added so far (pink) over the
+true signal (gray), on the same scale. Watch the pink curve lock onto each
+sample as soon as that sample's copy arrives, while the stretches between
+samples keep shifting as more distant copies arrive.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -397,27 +399,38 @@ win = (nodes >= -7) & (nodes <= 8)
 
 
 def rebuild_axes():
-    fig, ax = plt.subplots(figsize=(7.5, 2.9), constrained_layout=True)
-    ax.plot(t_win, truth, color=SCENERY, lw=1.2)
-    ax.axvline(QUERY, color=SCENERY, lw=0.8, ls=":")
-    ax.set_xlim(-7, 8)
-    ax.set_ylim(truth.min() - 1.0, truth.max() + 1.9)
-    ax.set_xlabel(r"position $t$ (samples)")
-    ax.set_ylabel("value")
-    ax.text(7.8, truth.max() + 0.4, "true signal", color=SCENERY, ha="right", fontsize=9)
-    return fig, ax
+    fig, (top, bottom) = plt.subplots(
+        2, 1, figsize=(7.5, 4.6), sharex=True, constrained_layout=True,
+        gridspec_kw={"height_ratios": [1, 1.3]},
+    )
+    for ax in (top, bottom):
+        ax.axhline(0, color=FAINT, lw=0.8)
+        ax.axvline(QUERY, color=SCENERY, lw=0.8, ls=":")
+        ax.set_ylim(truth.min() - 0.6, truth.max() + 1.2)
+        ax.set_ylabel("value")
+    bottom.plot(t_win, truth, color=SCENERY, lw=1.2)
+    bottom.set_xlim(-7, 8)
+    bottom.set_xlabel(r"position $t$ (samples)")
+    bottom.set_title("running sum", color=pal.pink, fontsize=11)
+    bottom.text(7.8, truth.max() + 0.3, "true signal", color=SCENERY, ha="right", fontsize=9)
+    return fig, top, bottom
 
 
-fig, ax = rebuild_axes()
-ax.plot(nodes[win], samples[win], "o", color=FAINT, ms=4)
-(newest,) = ax.plot([], [], color=pal.yellow, lw=1.2)
-(running,) = ax.plot([], [], color=pal.pink, lw=2)
-(used_dots,) = ax.plot([], [], "o", color=pal.cyan, ms=4.5)
-readout = ax.text(0.01, 0.97, "", transform=ax.transAxes, va="top", fontsize=10)
+fig, top, bottom = rebuild_axes()
+(newest,) = top.plot([], [], color=pal.yellow, lw=1.6)
+(newest_dot,) = top.plot([], [], "o", color=pal.yellow, ms=6)
+new_title = top.set_title("", color=pal.yellow, fontsize=11)
+bottom.plot(nodes[win], samples[win], "o", color=FAINT, ms=4)
+(running,) = bottom.plot([], [], color=pal.pink, lw=2)
+(used_dots,) = bottom.plot([], [], "o", color=pal.cyan, ms=4.5)
+readout = bottom.text(0.01, 0.97, "", transform=bottom.transAxes, va="top", fontsize=10)
 
 
 def draw(fig, k):
+    n = by_distance[k - 1]
     newest.set_data(t_win, copies[k - 1])
+    newest_dot.set_data([n], [signal(n)] if -7 <= n <= 8 else [np.nan])
+    new_title.set_text(f"copy {k} being added: the sinc moved to sample {n} and scaled by its value")
     running.set_data(t_win, partial[k - 1])
     used = np.sort(by_distance[:k])
     used = used[(used >= -7) & (used <= 8)]
@@ -434,11 +447,15 @@ clip(anim)
 
 ```{code-cell} python
 :tags: [hide-input]
-fig, ax = rebuild_axes()
-ax.plot(t_win, partial[-1], color=pal.pink, lw=1.5)
-ax.plot(nodes[win], samples[win], "o", color=pal.cyan, ms=4.5)
-ax.text(0.01, 0.97, f"copies added: {len(nodes)}", transform=ax.transAxes, va="top",
-        fontsize=10)
+fig, top, bottom = rebuild_axes()
+for n in nodes[win]:
+    top.plot(t_win, np.sinc(t_win - n) * signal(n), color=pal.cyan, lw=0.9, alpha=0.7)
+top.set_title("the copies from the samples in view", color=pal.cyan, fontsize=11)
+bottom.plot(t_win, partial[-1], color=pal.pink, lw=1.5)
+bottom.plot(nodes[win], samples[win], "o", color=pal.cyan, ms=4.5)
+bottom.set_title(f"sum of all {len(nodes)} copies", color=pal.pink, fontsize=11)
+bottom.text(0.01, 0.97, f"copies added: {len(nodes)}", transform=bottom.transAxes, va="top",
+            fontsize=10)
 plt.show()
 ```
 
