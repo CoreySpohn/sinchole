@@ -454,7 +454,9 @@ yippy-sinc validate path/to/delivery
 yippy-sinc validate path/to/delivery --product mono-000 --json
 ```
 
-```python
+This example needs a delivery on disk.
+
+```python notest
 from yippy.sinc_tools import validate
 
 report = validate("path/to/delivery")
