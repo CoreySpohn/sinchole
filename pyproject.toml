@@ -33,6 +33,7 @@ docs = [
     "sphinx-design>=0.6.0",
     "ipykernel>=6.29.0",
     "ipython>=8.18.0",
+    "imageio-ffmpeg>=0.6.0",
     "matplotlib>=3.11.0",
 ]
 test = [

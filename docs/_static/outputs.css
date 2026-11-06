@@ -69,3 +69,10 @@ html[data-theme="dark"] .bd-content div.cell_output img {
   margin: 0;
   accent-color: var(--pst-color-primary);
 }
+
+/* Animations embedded as mp4: full column width, like the stills. */
+.bd-content div.cell_output video {
+  display: block;
+  width: 100%;
+  height: auto;
+}

@@ -26,10 +26,13 @@ full.
 
 ```{code-cell} python
 :tags: [remove-cell]
+import tempfile
+from pathlib import Path
+
 import hwostyle
 import matplotlib.pyplot as plt
 import numpy as np
-from IPython.display import HTML
+from IPython.display import Video
 
 import eyepiece as ep
 
@@ -37,6 +40,15 @@ hwostyle.use("dark")
 pal = hwostyle.palette
 FAINT = ep.style.neutral(0.25)
 SCENERY = ep.style.neutral(0.45)
+
+_clips = iter(range(100))
+
+
+def clip(anim):
+    """Embed an animation as an mp4 with the browser's own player controls."""
+    path = Path(tempfile.gettempdir()) / f"sinchole-docs-sampling-{next(_clips)}.mp4"
+    anim.video(path, dpi=200)
+    return Video(str(path), embed=True, html_attributes="controls loop muted playsinline")
 
 F_MAX = 0.38
 rng = np.random.default_rng(3)
@@ -187,7 +199,7 @@ def draw(fig, k):
 
 frames = [1, 1] + [k for k in range(1, 13) for _ in range(2)] + [12] * 3
 anim = ep.render.animate(fig, draw, frames, fps=2)
-HTML(anim.jshtml(dpi=80))
+clip(anim)
 ```
 
 ```{code-cell} python
@@ -334,7 +346,7 @@ def draw(fig, f):
 
 
 anim = ep.render.animate(fig, draw, sweep, fps=6)
-HTML(anim.jshtml(dpi=80))
+clip(anim)
 ```
 
 ```{code-cell} python

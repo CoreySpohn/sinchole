@@ -24,11 +24,14 @@ to be done with a limited number of samples, as any real program must.
 
 ```{code-cell} python
 :tags: [remove-cell]
+import tempfile
+from pathlib import Path
+
 import hwostyle
 import jax
 import matplotlib.pyplot as plt
 import numpy as np
-from IPython.display import HTML
+from IPython.display import Video
 from matplotlib.collections import LineCollection
 
 import eyepiece as ep
@@ -39,6 +42,15 @@ hwostyle.use("dark")
 pal = hwostyle.palette
 FAINT = ep.style.neutral(0.25)
 SCENERY = ep.style.neutral(0.45)
+
+_clips = iter(range(100))
+
+
+def clip(anim):
+    """Embed an animation as an mp4 with the browser's own player controls."""
+    path = Path(tempfile.gettempdir()) / f"sinchole-docs-sinc-{next(_clips)}.mp4"
+    anim.video(path, dpi=200)
+    return Video(str(path), embed=True, html_attributes="controls loop muted playsinline")
 
 F_MAX = 0.38
 rng = np.random.default_rng(3)
@@ -218,7 +230,7 @@ def draw(fig, count):
 counts = [1, 2, 3, 4, 6, 8, 11, 16, 24, 40, 80]
 frames = [1] + counts + [80] * 3
 anim = ep.render.animate(fig, draw, frames, fps=1)
-HTML(anim.jshtml(dpi=80))
+clip(anim)
 ```
 
 ```{code-cell} python
@@ -417,7 +429,7 @@ def draw(fig, k):
 counts = [1, 2, 3, 4, 5, 6, 8, 10, 13, 17, 22, 28, 36, 50, 70, 95, 121]
 frames = [1] + counts + [121] * 2
 anim = ep.render.animate(fig, draw, frames, fps=3)
-HTML(anim.jshtml(dpi=80))
+clip(anim)
 ```
 
 ```{code-cell} python
@@ -576,7 +588,7 @@ state = draw_query(top, bottom, 0.0)
 queries = np.concatenate([np.zeros(1), np.linspace(0.0, 3.0, 25), np.full(2, 3.0)])
 anim = ep.render.animate(fig, lambda fig, q: draw_query(top, bottom, q, state), queries,
                          fps=6)
-HTML(anim.jshtml(dpi=80))
+clip(anim)
 ```
 
 ```{code-cell} python
