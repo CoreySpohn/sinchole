@@ -129,7 +129,7 @@ readable delivery needs: {doc}`practice/designers`.
 
 :::{grid-item-card} You want to know why it works
 Sampling theory in general, then why a coronagraph PSF is band-limited and
-how symmetry halves the grid twice: {doc}`foundations/sinc-interpolation`,
+how symmetry halves the grid twice: {doc}`foundations/sampling`,
 then {doc}`theory/kernel`.
 :::
 
@@ -243,6 +243,7 @@ validation
 :caption: Understanding
 :hidden:
 
+foundations/sampling
 foundations/sinc-interpolation
 theory/kernel
 theory/band-limits

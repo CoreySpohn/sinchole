@@ -11,7 +11,7 @@ admission
 aliasing
 : A band-limited signal sampled above the Nyquist limit looks like a slower
   one that passes through the same samples. See
-  {doc}`../foundations/sinc-interpolation`.
+  {doc}`../foundations/sampling`.
 
 APLC
 : Apodized pupil Lyot coronagraph: an apodizing mask in the pupil, a hard

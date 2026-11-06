@@ -61,6 +61,7 @@ myst_fence_as_directive = ["mermaid"]
 
 html_theme = "sphinx_book_theme"
 html_static_path = ["_static"]
+html_css_files = ["outputs.css"]
 master_doc = "index"
 html_title = "sinchole"
 

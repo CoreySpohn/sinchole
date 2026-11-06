@@ -38,7 +38,7 @@ hwostyle.use("dark")
    widths $L_x$, $L_y$ (in units of $D$) and the shortest contributing
    wavelength $\lambda_{\min}$, use $h_j\le0.76\,\lambda_{\min}/(2\lambda_0L_j)$
    in $\lambda_0/D$, which keeps the oversampling factor $\rho$ at or below
-   0.76 ({doc}`../foundations/sinc-interpolation` explains the number and
+   0.76 ({doc}`../foundations/sampling` defines $\rho$, {doc}`../theory/kernel` explains the number and
    {doc}`../theory/band-limits` the formula). For $L=1$ at $\lambda_0$ this
    is 0.38. Declare the
    widths and $\lambda_{\min}$, and do not round the spacing after propagating.
