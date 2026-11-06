@@ -225,7 +225,18 @@ def main(root, out_dir):
         else None
     )
     receipt = admission.receipt
+    bases = {}
+    for row in _rows(root / "starter_mirror_checks.csv"):
+        key = (int(row["base_ix"]), int(row["base_iy"]))
+        bases[key] = bases.get(key, 0) + 1
+    both = {k: v for k, v in bases.items() if k[0] != 0 and k[1] != 0}
+    axis = {k: v for k, v in bases.items() if k[0] == 0 or k[1] == 0}
     summary = dict(
+        mirror_bases_both_indices_nonzero=len(both),
+        mirror_checks_at_those_bases=sum(both.values()),
+        mirror_bases_on_an_axis=len(axis),
+        mirror_checks_at_axis_bases=sum(axis.values()),
+        axis_base_indices=[list(k) for k in axis],
         admitted=bool(admission.admitted),
         training_nodes=int(arguments["indices_xy"].shape[0]),
         independent_checks=len(check_xy),
