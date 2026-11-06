@@ -54,9 +54,9 @@ position, as the planet moves past the occulter. One detector pixel, at
 $(3.1, 0.6)\,\lambda_0/D$, serves as the probe.
 
 As the planet slides along $x$, the probe pixel's brightness traces out a
-curve against the planet's position $s_x$. That curve has wiggles, and their
-frequency is measured in cycles per $\lambda_0/D$ of planet motion, the
-bandwidth defined on the foundations page.
+curve against the planet's position $s_x$. That curve oscillates, and the
+frequencies of its oscillations are measured in cycles per $\lambda_0/D$ of
+planet motion, the units of the bandwidth defined on the foundations pages.
 
 ```{admonition} Predict before reading on
 :class: tip
@@ -84,7 +84,7 @@ left the detector image changes character: a bright core outside the
 occulter, a faint leak while it hides behind the occulting disk, then the
 core again. On the right the probe pixel's intensity is drawn as the planet
 moves. However abruptly the image seems to change, the pixel's curve stays
-smooth, with wiggles no shorter than one $\lambda_0/D$.
+smooth, with no oscillation shorter than one $\lambda_0/D$.
 
 ```{code-cell} python
 :tags: [hide-input]

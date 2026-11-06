@@ -96,15 +96,15 @@ plt.show()
 No. All three curves fit the twelve samples perfectly, and so do infinitely
 many others, so the samples cannot tell us which curve is the real one. To
 pick one we need to know something about the signal itself. What separates
-the three curves is how finely each one wiggles: the slow curve rises and
-falls over several samples, while the fast curve turns around twice between
-every pair of samples. The rest of this page makes "how finely a signal can
-wiggle" precise and shows that knowing it, together with close enough
+the three curves is how rapidly each one oscillates: the slow curve rises
+and falls over several samples, while the fast curve rises and falls between
+every pair of samples. The rest of this page makes "how rapidly a signal can
+oscillate" precise and shows that knowing it, together with close enough
 samples, picks out a single curve.
 
 ## A cosine repeats at one steady rate
 
-The simplest signal that wiggles at one definite rate is a cosine. Its
+The simplest signal that oscillates at one definite rate is a cosine. Its
 **frequency** counts how many full cycles it completes per unit of position.
 Positions on these pages are measured in units of the sample spacing, so
 frequency comes out in cycles per sample.
@@ -226,7 +226,7 @@ the recipe of sizes and phases is unique. This is Fourier analysis
 without proof.
 :::
 
-## A band limit caps how finely the signal can wiggle
+## A band limit caps how rapidly the signal can oscillate
 
 Because the signal is a sum of cosines, it can have no feature narrower than
 its fastest cosine allows. The right panel below is the slow curve's
