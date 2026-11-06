@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sinchole"
-description = "Certified coronagraph field tables in JAX: band-limited complex fields read with windowed-sinc kernels"
+description = "Sampling-admitted intensity grids and windowed-sinc reads in JAX with unknown error bounds"
 authors = [{ name = "Corey Spohn", email = "corey.a.spohn@nasa.gov" }]
 dynamic = ['readme', 'version']
 requires-python = ">=3.12"
@@ -17,7 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-dependencies = []
+dependencies = ["jax>=0.8.1", "equinox>=0.13.2", "jaxtyping>=0.3.3"]
 
 [project.optional-dependencies]
 dev = ["pre-commit>=3.5.0"]
