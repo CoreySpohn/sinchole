@@ -319,3 +319,34 @@ def test_reflection_tolerance_range_on_full_grid(full_delivery):
     result = sc.admit_grid(**{**full_delivery, "reflection": reflection})
     assert not result.admitted
     assert result.reason_bits & sc.Reason.SYMMETRY_UNSUPPORTED
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        sc.Domain("annulus", "closed", jnp.zeros((2, 2)), jnp.array([1e-200, 2e-200])),
+        sc.Domain(
+            "annulus",
+            "closed",
+            jnp.zeros((2, 2)),
+            jnp.array([0.0, math.nextafter(1e6, math.inf)]),
+        ),
+        sc.Domain(
+            "box",
+            "closed",
+            jnp.array([[-1.0, -1.0], [math.nextafter(1e6, math.inf), 1.0]]),
+            jnp.zeros(2),
+        ),
+    ],
+)
+def test_reader_constructor_enforces_domain_range(full_reader, domain):
+    reader = full_reader
+    with pytest.raises(ValueError, match="supported numeric range"):
+        sc.Interpolator(
+            reader.grid,
+            domain,
+            reader.profile,
+            reader.policy,
+            reader.tiling,
+            reader.memory,
+        )

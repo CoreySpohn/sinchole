@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 
 from sinchole._types import F64, I32, Boolean, check_array, check_shape, check_static
-from sinchole.domain import normal_or_zero, safe_query
+from sinchole.domain import in_supported_range, normal_or_zero, safe_query
 from sinchole.evidence import Admission, Reason, Receipt
 from sinchole.kernel import KernelProfile
 
@@ -656,13 +656,7 @@ def admit_grid(
     if not range_valid:
         reasons |= Reason.LAYOUT_UNSUPPORTED
     geometry_valid = geometry_valid and range_valid
-    if domain.kind == "box":
-        domain_valid = all(
-            abs(v) <= 1e6 for row in domain.limits_xy_lod.tolist() for v in row
-        )
-    else:
-        inner, outer = domain.radii_lod.tolist()
-        domain_valid = (inner == 0 or 1e-6 <= inner <= 1e6) and 1e-6 <= outer <= 1e6
+    domain_valid = in_supported_range(domain)
     if not domain_valid:
         reasons |= Reason.METADATA_CONFLICT
     reflected = reflection.kind == "two_axis_pixel_flip_v1"

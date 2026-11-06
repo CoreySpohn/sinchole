@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from sinchole._types import F64, I32, U32, Boolean, check_array, check_static
-from sinchole.domain import Domain, coverage, safe_query
+from sinchole.domain import Domain, coverage, in_supported_range, safe_query
 from sinchole.evidence import (
     BoundKind,
     EvidenceBinding,
@@ -194,6 +194,8 @@ class Interpolator(AbstractImageReader):
         _require_precision()
         self.grid, self.domain, self.profile = grid, domain, profile
         self.policy, self.tiling, self.memory = policy, tiling, memory
+        if not in_supported_range(domain):
+            raise ValueError("Domain lies outside the supported numeric range")
         point = safe_query(domain, grid.source, grid.reflection.kind != "none")
         if point is None:
             raise ValueError("Domain has no covered query")

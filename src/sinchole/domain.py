@@ -66,6 +66,19 @@ def normal_or_zero(value):
     return math.isfinite(value) and (value == 0 or abs(value) >= sys.float_info.min)
 
 
+def in_supported_range(domain):
+    """Whether a domain lies in the profile's supported numeric range.
+
+    Box limits must have magnitude <= 1e6; annulus radii must be 0 (inner only)
+    or in [1e-6, 1e6], so the squared membership comparisons neither underflow
+    nor overflow. Admission and reader construction share this gate.
+    """
+    if domain.kind == "box":
+        return all(abs(v) <= 1e6 for row in domain.limits_xy_lod.tolist() for v in row)
+    inner, outer = domain.radii_lod.tolist()
+    return (inner == 0 or 1e-6 <= inner <= 1e6) and 1e-6 <= outer <= 1e6
+
+
 def coverage(query, lattice, reflected):
     """Check floating floor ranges before any potentially overflowing int cast."""
     floor = exact_quotient_floor_v1(
