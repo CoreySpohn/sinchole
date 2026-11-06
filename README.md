@@ -29,44 +29,60 @@ import sinchole as sc
 jax.config.update("jax_enable_x64", True)
 
 pixels = sc.PixelGrid(
-    shape_yx=(2, 2), center_xy_pix=jnp.array([0.5, 0.5]),
-    basis_xy_lod=jnp.eye(2) * 0.25, measure="pixel_integral",
+    shape_yx=(2, 2),
+    center_xy_pix=jnp.array([0.5, 0.5]),
+    basis_xy_lod=jnp.eye(2) * 0.25,
+    measure="pixel_integral",
 )
 products = sc.Products(
-    frame=sc.Frame(jnp.array(500.), jnp.array(6.), "entrance_diameter"),
+    frame=sc.Frame(jnp.array(500.0), jnp.array(6.0), "entrance_diameter"),
     pixels=pixels,
     normalization=sc.Normalization(
-        "incident_photon", jnp.array([1.]), jnp.array([jnp.nan]), (), "example-units"
+        "incident_photon", jnp.array([1.0]), jnp.array([jnp.nan]), (), "example-units"
     ),
-    kind="monochromatic", wavelength_nm=jnp.array([500.]),
-    limits_nm=jnp.array([[500., 500.]]), sampling_min_nm=jnp.array([500.]),
+    kind="monochromatic",
+    wavelength_nm=jnp.array([500.0]),
+    limits_nm=jnp.array([[500.0, 500.0]]),
+    sampling_min_nm=jnp.array([500.0]),
     campaign_sampling_min_nm=jnp.array(jnp.nan),
     support_extent_xy=jnp.ones((1, 2)),
     support_evidence=jnp.array([1], dtype=jnp.int32),
     support_source_ids=("constant-field-support",),
     premises=sc.Premises(
-        jnp.ones(6, dtype=bool), jnp.ones(6, dtype=jnp.int32),
+        jnp.ones(6, dtype=bool),
+        jnp.ones(6, dtype=jnp.int32),
         ("analytic-constant-field",) * 6,
     ),
-    optical_id="example", spectral_weight_id="mono", identity="example-product",
+    optical_id="example",
+    spectral_weight_id="mono",
+    identity="example-product",
 )
-lattice = sc.Lattice(jnp.array([-5., -5.]), jnp.array([0.25, 0.25]), (41, 41))
+lattice = sc.Lattice(jnp.array([-5.0, -5.0]), jnp.array([0.25, 0.25]), (41, 41))
 iy, ix = jnp.indices(lattice.shape_yx, dtype=jnp.int32)
 indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
 offsets = lattice.origin_xy_lod + indices * lattice.spacing_xy_lod
 reflection = sc.Reflection(
     "none", jnp.array([False, False]), "", "", jnp.int32(0), "", jnp.array([False])
 )
-domain = sc.Domain("box", "closed", jnp.array([[-1., -1.], [1., 1.]]), jnp.zeros(2))
+domain = sc.Domain("box", "closed", jnp.array([[-1.0, -1.0], [1.0, 1.0]]), jnp.zeros(2))
 memory = sc.MemoryBudget(1_000_000, 1_000_000, 2_000_000, 4_000_000)
 admission = sc.admit_grid(
-    jnp.ones((1, 41 * 41, 2, 2)), offsets,
-    declared_lattice=lattice, indices_xy=indices, products=products,
-    reflection=reflection, domain=domain, memory=memory,
+    jnp.ones((1, 41 * 41, 2, 2)),
+    offsets,
+    declared_lattice=lattice,
+    indices_xy=indices,
+    products=products,
+    reflection=reflection,
+    domain=domain,
+    memory=memory,
 )
 reader = sc.Interpolator(
-    admission.require(), domain, sc.KernelProfile(), sc.ReadPolicy(),
-    sc.Tiling(pixel_tile=4), memory,
+    admission.require(),
+    domain,
+    sc.KernelProfile(),
+    sc.ReadPolicy(),
+    sc.Tiling(pixel_tile=4),
+    memory,
 )
 result = sc.require_read(reader.read(jnp.array([0.13, -0.21]), jnp.int32(0)))
 assert bool(result.accepted)
