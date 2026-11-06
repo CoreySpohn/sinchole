@@ -52,6 +52,44 @@ print(coro.interpolation_info.receipt_id)    # the admission receipt identity
 A quadrant delivery has no blend representation, so `"auto"` on a quadrant
 delivery either reads with sinchole or raises, and it never falls back.
 
+## I already have a YIP: keep blend or request a sinc delivery?
+
+An existing YIP package keeps working through `"blend"` with no change, so
+the question is whether the science needs reads between nodes at a level that
+blend cannot give. On the 16 interior checks of the public starter, the
+sinchole reads sit at $1.4\times10^{-6}$ of the local peak at worst and the
+blend reader on the same checks is off by about 0.2 by the same measure, so the choice matters
+only for work that reads a planet at positions nobody propagated.
+
+```mermaid
+flowchart TD
+    A["I have a YIP package"] --> B{"Do you read planet PSFs<br/>between the stored nodes?"}
+    B -- "no, or blend is accurate enough" --> C["Keep interpolation='blend'<br/>nothing changes"]
+    B -- "yes, and it must be checkable" --> D["Request a sinc delivery<br/>from the designer"]
+    D --> E["Designer plans positions with yippy-sinc plan<br/>and propagates the complete rectangle"]
+    E --> F["Designer validates with yippy-sinc validate<br/>and sends the directory"]
+    F --> G["Coronagraph(path, interpolation='sinc')"]
+```
+
+A YIP cannot be promoted by editing its files. A sinc delivery needs a
+complete lattice at the planned spacing, pixel-integral images in a fixed
+frame, and mirror and interior checks that were propagated directly, and a
+YIP carries none of the three. What changes for the designer is the position
+list and the checks. What does not change is the stellar and sky products:
+they stay in their legacy YIP layout, unchanged, in the directory named by
+the manifest key `legacy_package_path`.
+
+## Why does `Coronagraph` need the stellar products?
+
+`Coronagraph(path, interpolation="sinc")` builds the whole coronagraph
+object, and the object also serves the stellar intensity and the sky
+transmission, which sinchole does not read. They come from the legacy
+products (`stellar_intens.fits` and the others of a YIP package) in
+`legacy_package_path`. A delivery meant for direct `Coronagraph` use must
+therefore include them. The public starter holds none, so it is read through
+yippy's router (`route_interpolation`), which returns the sinc backend
+without them, and `yippy-sinc validate` checks its files either way.
+
 ## Options
 
 `SincOptions` selects a product and passes construction controls through to
@@ -105,8 +143,21 @@ angular unit (arcsec, mas, deg, rad) is converted, and an unknown unit raises.
 ## The delivery manifest at a glance
 
 A sinc delivery is a directory whose `sinc-delivery.json` manifest (schema
-`sinc-delivery-0.1`) names every file and its hash. The designer-facing
-checklist is on {doc}`designers`.
+`sinc-delivery-0.1`) names every file and its hash. Every manifest key, CSV
+column, FITS HDU and header keyword is defined on yippy's
+[schema page][schema], and this page does not repeat them. The
+designer-facing checklist is on {doc}`designers`, the step-by-step recipe is
+on {doc}`delivery-recipe`, and the `yippy-sinc` command line has two
+commands that a designer needs.
+
+`yippy-sinc plan`
+: Writes the training, check and mirror-check lists from the wavelengths,
+  support and served limit.
+
+`yippy-sinc validate <dir>`
+: Runs the yippy integrity checks and then sinchole admission with 64-bit
+  arithmetic, and exits 0 on a pass, 1 on a failure and 2 on a usage error.
+  The Python form is `yippy.sinc_tools.validate()`.
 
 ```text
 sinc-delivery.json                   manifest: frame, layout, symmetry, hashes
@@ -119,4 +170,9 @@ checks/mono-000.fits                 independent check images
 mirror-checks/mono-000.fits          mirror check images
 mirror-report.json                   negative-position and axis comparisons
 legacy-yip/                          stellar and sky products, unchanged
+                                     (needed by Coronagraph)
 ```
+
+Next: {doc}`admission`.
+
+[schema]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html

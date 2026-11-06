@@ -9,6 +9,64 @@ declarations in the order `admit_grid` takes them, saying what each claims
 and why the reader needs it. The toy coronagraph's versions are in
 `docs/toy_coronagraph.py`.
 
+## Where each declaration lives in a delivery
+
+A designer never calls `admit_grid`. Each declaration is a key of the
+`sinc-delivery.json` manifest or a column or HDU of a delivered file, and
+yippy builds the call. The table gives the home of every declaration, and the
+keys, columns and headers are defined on yippy's [schema page][schema], which
+is the one place that defines them.
+
+```{list-table}
+:header-rows: 1
+:widths: 28 72
+
+* - Declaration
+  - Where it lives
+* - `intensity_nodes`
+  - the PSF cube of each plane, `planes[].psf_path`
+    ([FITS files][schema-fits]), with `storage_dtype`
+* - `offsets_xy_lod`
+  - the offsets file of each plane, `planes[].offsets_path`
+* - `declared_lattice`, `indices_xy`
+  - `source_origin_lod` and `source_spacing_lod`, and the `ix`, `iy` columns of
+    the training list named by `training_coordinates_path`
+    ([CSV files][schema-csv])
+* - `Frame`
+  - `lambda0_m`, `diameter_m`, `diameter_convention`, `coordinate_model`
+* - `PixelGrid`
+  - `detector_shape_yx`, `detector_center_xy`, `pixel_scale_lod_xy`,
+    `sample_kind` ([pixel measure][schema-pixel])
+* - `Normalization`
+  - the `normalization` object and `planes[].photon_conversion`
+    ([normalization][schema-norm])
+* - Wavelengths
+  - `spectral_sampling` and `planes[]` ([planes][schema-planes])
+* - Support
+  - `support_extent_D` and `support_evidence`
+* - `Premises`
+  - `premises` ([premises and evidence codes][schema-premises])
+* - Identities
+  - the optical identity is the hash of the `optical_state` object, and the
+    product identity is the manifest hash joined to the plane `id`
+* - `Reflection`
+  - `reflection` ([reflection][schema-reflection]) and the mirror report
+* - `MirrorCheckSet`, `CheckSet`
+  - `mirror_checks[]` and `checks[]` records and their cubes
+* - `Domain`
+  - `served` ([domain][schema-domain])
+* - `MemoryBudget`
+  - not in the manifest, derived by yippy from the delivery unless the caller
+    passes one
+```
+
+Three version 0.1 limits follow from that mapping. A yippy delivery states
+`integral` or `mean` for the pixel measure, so `point_density` is available
+only to a caller of sinchole directly. A band-mean wavelength kind is not
+accepted from a delivery, whose planes are monochromatic. And evidence code
+2, external evidence, is rejected by the yippy parser, so a designer declares
+each premise with code 1 and a `source_id` that names the declaration.
+
 ## The samples and their positions
 
 `intensity_nodes`
@@ -21,7 +79,9 @@ and why the reader needs it. The toy coronagraph's versions are in
 : The source position of every node, shape `[N, 2]`, $x$ then $y$, in
   reference $\lambda_0/D$. These are checked against the lattice to within
   four units in the last place of their original precision, and they are never
-  used to estimate the spacing.
+  used to estimate the spacing.  The original precision is the argument `offset_original_dtype` of
+  `admit_grid`. It is an adapter argument and not a delivery field, because
+  yippy sets it from the dtype of the offsets file.
 
 `declared_lattice` (`Lattice`)
 : The authoritative origin, spacing and node count per axis. A designer
@@ -72,8 +132,9 @@ Support
   enters as a paraxial tilt at the entrance pupil, the optics are fixed and
   linear, the detector registration is fixed, the pixel response is fixed,
   the normalization does not depend on the source and the spectral weights
-  do not depend on the source. Each carries an evidence code (designer
-  declared or externally established) and a source identifier. A premise
+  do not depend on the source. Each carries an evidence code (1, designer
+  declared, or 2, externally established, which version 0.1 does not support
+  from a delivery) and a source identifier. A premise
   with unknown evidence refuses admission with `METADATA_MISSING`, and a
   premise declared false refuses with the matching reason. The reader never
   assumes one.
@@ -115,3 +176,15 @@ Identities
 : Optional `(key, text)` pairs, such as the full text of the symmetry
   argument or a normalization definition, kept verbatim in the receipt and
   hashed into its identity.
+
+Next: {doc}`delivery-recipe`.
+
+[schema]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html
+[schema-fits]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#fits-files
+[schema-csv]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#csv-files
+[schema-pixel]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#pixel-measure
+[schema-norm]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#normalization
+[schema-planes]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#planes
+[schema-premises]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#premises-and-evidence-codes
+[schema-reflection]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#reflection
+[schema-domain]: https://yippy.readthedocs.io/en/latest/sinc-delivery.html#domain-the-served-region
