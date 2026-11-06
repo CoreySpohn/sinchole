@@ -6,7 +6,7 @@ from matplotlib.patches import Circle, Rectangle
 
 from sinchole.kernel import exact_quotient_floor_v1
 from sinchole.viz import _require
-from sinchole.viz._common import query_xy, require_x64, single_ax
+from sinchole.viz._common import lattice_parts, query_xy, require_x64, single_ax
 
 
 def plot_coverage(
@@ -43,29 +43,7 @@ def plot_coverage(
                                quadrant=True, query=(0.2, 0.3))
         result.update((-0.2, 0.4))
     """
-    if hasattr(lattice, "origin_xy_lod"):
-        origin, spacing, shape = (
-            lattice.origin_xy_lod,
-            lattice.spacing_xy_lod,
-            lattice.shape_yx,
-        )
-    else:
-        origin, spacing, shape = lattice
-    origin, spacing = np.asarray(origin, dtype=float), np.asarray(spacing, dtype=float)
-    shape = np.asarray(shape)
-    if (
-        origin.shape != (2,)
-        or spacing.shape != (2,)
-        or shape.shape != (2,)
-        or not np.all(np.isfinite(origin))
-        or not np.all(np.isfinite(spacing))
-        or np.any(spacing <= 0)
-        or np.any(shape < 1)
-        or np.any(shape != np.floor(shape))
-    ):
-        raise ValueError(
-            "lattice needs finite origin, positive spacing, and integer shape_yx"
-        )
+    origin, spacing, shape = lattice_parts(lattice)
     if quadrant and np.any(origin != 0):
         raise ValueError("quadrant coverage requires zero lattice origin")
     point = None if query is None else query_xy(query)

@@ -27,3 +27,34 @@ def query_xy(query):
     if point.shape != (2,) or not np.all(np.isfinite(point)):
         raise ValueError("query must be a finite (x, y) pair")
     return point
+
+
+def lattice_parts(lattice):
+    """Return validated ``(origin, spacing, shape_yx)`` host arrays of a lattice.
+
+    Accepts a Lattice or an ``(origin_xy, spacing_xy, shape_yx)`` tuple.
+    """
+    if hasattr(lattice, "origin_xy_lod"):
+        origin, spacing, shape = (
+            lattice.origin_xy_lod,
+            lattice.spacing_xy_lod,
+            lattice.shape_yx,
+        )
+    else:
+        origin, spacing, shape = lattice
+    origin, spacing = np.asarray(origin, dtype=float), np.asarray(spacing, dtype=float)
+    shape = np.asarray(shape)
+    if (
+        origin.shape != (2,)
+        or spacing.shape != (2,)
+        or shape.shape != (2,)
+        or not np.all(np.isfinite(origin))
+        or not np.all(np.isfinite(spacing))
+        or np.any(spacing <= 0)
+        or np.any(shape < 1)
+        or np.any(shape != np.floor(shape))
+    ):
+        raise ValueError(
+            "lattice needs finite origin, positive spacing, and integer shape_yx"
+        )
+    return origin, spacing, shape

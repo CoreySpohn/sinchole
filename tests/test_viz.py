@@ -6,6 +6,7 @@ import pytest
 
 ep = pytest.importorskip("eyepiece")
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import matplotlib
@@ -38,6 +39,10 @@ def _call(name, ax=None):
     calls = {
         "plot_kernel": lambda: viz.plot_kernel(ax=ax),
         "plot_stencil": lambda: viz.plot_stencil(0.3, ax=ax),
+        "plot_stencil_2d": lambda: viz.plot_stencil_2d(
+            (0.3, 0.4), ((0, 0), (0.5, 0.5), (40, 40)), ax=ax
+        ),
+        "plot_spacing_rule": lambda: viz.plot_spacing_rule(ax=ax),
         "plot_coverage": lambda: viz.plot_coverage(
             ((-5.0, -6.0), (0.25, 0.5), (40, 48)), query=(0.0, 2.0), ax=ax
         ),
@@ -58,6 +63,8 @@ def _call(name, ax=None):
 NAMES = (
     "plot_kernel",
     "plot_stencil",
+    "plot_stencil_2d",
+    "plot_spacing_rule",
     "plot_coverage",
     "plot_read",
     "plot_residual",
@@ -350,3 +357,102 @@ def test_spectrum_known_frequency_and_update():
     fresh = viz.plot_band_spectrum(trace, 0.25, bandwidth=1)
     np.testing.assert_allclose(line.get_data(), fresh.artists["line"].get_data())
     assert children == list(result.ax.get_children())
+
+
+def _taps_2d(result):
+    """Return offsets and areas of the counted taps."""
+    taps = result.artists["scatter"][-2]
+    return np.asarray(taps.get_offsets()), np.asarray(taps.get_sizes())
+
+
+def test_stencil_2d_areas_are_the_separable_weights():
+    lattice = ((0.0, 0.0), (0.25, 0.5), (60, 40))
+    query = (3.3, 6.1)
+    result = viz.plot_stencil_2d(query, lattice, max_area=100.0)
+    offsets, areas = _taps_2d(result)
+    assert len(offsets) == 1024
+    tx, wx = stencil(jnp.asarray([query[0]]), 0.0, 0.25)
+    ty, wy = stencil(jnp.asarray([query[1]]), 0.0, 0.5)
+    expected = np.outer(np.asarray(wy[0]), np.asarray(wx[0])).ravel()
+    np.testing.assert_allclose(areas, 100.0 * np.abs(expected))
+    np.testing.assert_allclose(np.sum(expected), 1.0, atol=1e-5)
+    np.testing.assert_allclose(offsets[:32, 0], 0.25 * np.asarray(tx[0]))
+    np.testing.assert_allclose(offsets[::32, 1], 0.5 * np.asarray(ty[0]))
+    colors = np.asarray(result.artists["scatter"][-2].get_edgecolors())
+    assert np.all(colors[expected >= 0] == colors[np.argmax(expected)])
+    assert len(np.unique(colors, axis=0)) == 2
+
+
+def test_stencil_2d_weight_order_counts_largest_first():
+    lattice = ((0.0, 0.0), (0.25, 0.25), (60, 60))
+    result = viz.plot_stencil_2d(
+        (3.3, 4.1), lattice, order="weight", n_taps=0, max_area=1.0
+    )
+    assert len(_taps_2d(result)[0]) == 0
+    result.update(n_taps=10)
+    top = _taps_2d(result)[1]
+    result.update(n_taps=1024)
+    everything = np.sort(_taps_2d(result)[1])[::-1]
+    np.testing.assert_allclose(np.sort(top)[::-1], everything[:10])
+    result.update(n_taps=11)
+    assert len(_taps_2d(result)[0]) == 11
+    with pytest.raises(ValueError, match="n_taps"):
+        result.update(n_taps=1025)
+
+
+def test_stencil_2d_quadrant_fold_and_update():
+    lattice = ((0.0, 0.0), (0.5, 0.5), (31, 31))
+    result = viz.plot_stencil_2d((0.7, 4.0), lattice, quadrant=True)
+    signed, _ = _taps_2d(result)
+    assert signed[:, 0].min() < 0
+    face = np.asarray(result.artists["scatter"][-2].get_facecolors())
+    hollow = face[:, 3] == 0.0
+    assert hollow.sum() == 0  # every mirrored tap is stored
+    result.update(fold=1.0)
+    folded, _ = _taps_2d(result)
+    np.testing.assert_allclose(folded[:, 0], np.abs(signed[:, 0]))
+    np.testing.assert_allclose(folded[:, 1], np.abs(signed[:, 1]))
+    result.update((-0.7, 4.0), fold=0.0)
+    fresh = viz.plot_stencil_2d((-0.7, 4.0), lattice, quadrant=True)
+    np.testing.assert_allclose(_taps_2d(result)[0], _taps_2d(fresh)[0])
+    with pytest.raises(ValueError, match="fold"):
+        viz.plot_stencil_2d((0.0, 0.0), ((-5, -5), (1, 1), (40, 40)), fold=0.5)
+    with pytest.raises(ValueError, match="quadrant"):
+        viz.plot_stencil_2d((0.0, 0.0), ((-5, -5), (1, 1), (40, 40)), quadrant=True)
+
+
+def test_stencil_2d_marks_taps_outside_storage_hollow():
+    result = viz.plot_stencil_2d((1.0, 1.0), ((0.0, 0.0), (0.5, 0.5), (40, 40)))
+    face = np.asarray(result.artists["scatter"][-2].get_facecolors())
+    offsets, _ = _taps_2d(result)
+    outside = (offsets < 0).any(axis=1)
+    assert outside.any()
+    assert np.all(face[outside, 3] == 0.0)
+    assert np.all(face[~outside, 3] > 0.0)
+
+
+def test_spacing_rule_chain_of_numbers():
+    result = viz.plot_spacing_rule(support_width=1.0, radius=(4.18, 5.70))
+    texts = [t.get_text() for t in result.artists["text"]]
+    assert "27" in texts[3] and "11+16" in texts[3].replace(" ", "")
+    assert "27" in texts[4] and "31" in texts[4]
+    assert "0.38" in texts[2]
+    wider = viz.plot_spacing_rule(support_width=1.2, sigma_max=1.0, radius=4.0)
+    labels = [t.get_text() for t in wider.artists["text"]]
+    assert "0.317" in labels[2]
+    assert "1.2" in labels[1]
+
+
+def test_spacing_rule_reads_products_and_lattice(quadrant_delivery):
+    base = quadrant_delivery["products"]
+    products = eqx.tree_at(lambda p: p.sampling_min_nm, base, jnp.array([450.0]))
+    result = viz.plot_spacing_rule(products, radius=3.0)
+    texts = [t.get_text() for t in result.artists["text"]]
+    assert "1.11" in texts[1]
+    lattice = ((0.0, 0.0), (0.3, 0.3), (27, 31))
+    given = viz.plot_spacing_rule(products, lattice)
+    assert "27" in given.artists["text"][4].get_text()
+    with pytest.raises(ValueError, match="positive"):
+        viz.plot_spacing_rule(support_width=-1.0)
+    with pytest.raises(ValueError, match="margin"):
+        viz.plot_spacing_rule(margin=1.5)

@@ -8,6 +8,8 @@ function accepts one ``ax`` (never an axes array) and returns a PlotResult.
 _LAZY = {
     "plot_kernel": "kernel",
     "plot_stencil": "kernel",
+    "plot_stencil_2d": "stencil2d",
+    "plot_spacing_rule": "rule",
     "plot_coverage": "coverage",
     "plot_read": "images",
     "plot_residual": "images",
