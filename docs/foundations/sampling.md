@@ -272,10 +272,13 @@ def pair_axes(rows, height):
     return fig, axes
 
 
-def capped(cap, seed, spacing=0.002):
+def capped(cap, seed, spacing=0.002, taper=0.2):
     """Cosines packed `spacing` apart below `cap`, equal sizes tapering to zero at the cap."""
     f = np.arange(spacing / 2, cap, spacing)
-    size = np.where(f < 0.8 * cap, 1.0, np.cos(np.pi / 2 * (f - 0.8 * cap) / (0.2 * cap)) ** 2)
+    size = np.ones_like(f)
+    if taper > 0:
+        edge = f > (1 - taper) * cap
+        size[edge] = np.cos(np.pi / 2 * (f[edge] - (1 - taper) * cap) / (taper * cap)) ** 2
     size *= np.sqrt(2 / np.sum(size**2))  # every signal gets the same spread of values
     phase = np.random.default_rng(seed).uniform(0, 2 * np.pi, f.size)
 
@@ -507,19 +510,120 @@ here need only the range up to 1.
 
 ## The Nyquist limit: more than two samples per cycle
 
-The two frequencies $f$ and $1-f$ are equal at $f=0.5$, two samples per
-cycle, so 0.5 cycles per sample is the dividing line, the **Nyquist limit**.
-A cosine below it is always the slowest cosine through its own samples, so
-it cannot be mistaken for anything slower. The second requirement is to
-**place the samples close enough that the bandwidth stays below the Nyquist
-limit**.
+The aliasing rule pairs every frequency $f$ with a twin at $1-f$ that gives
+the same samples. The figure plots the frequency the samples appear to show
+against the true frequency, with the four cosines of the still marked.
+
+```{code-cell} python
+:tags: [hide-input]
+f_true = np.linspace(0, 1, 401)
+fig, ax = plt.subplots(figsize=(7.5, 3.0), constrained_layout=True)
+ax.axvspan(0.5, 1, color=FAINT, alpha=0.35, lw=0)
+ax.plot([0, 1], [0, 1], color=FAINT, lw=1, ls="--")
+ax.text(0.56, 0.6, "if the samples showed the truth", color=SCENERY, fontsize=9, rotation=45,
+        rotation_mode="anchor", transform_rotates_text=True)
+ax.plot(f_true, np.minimum(f_true, 1 - f_true), color=pal.pink, lw=2)
+ax.axvline(0.5, color=SCENERY, lw=1)
+ax.text(0.49, 0.03, "Nyquist limit 0.5", color=SCENERY, fontsize=9, ha="right")
+for f, ha, dx in ((0.25, "right", -8), (0.45, "right", -8), (0.55, "left", 8), (0.7, "left", 8)):
+    seen = min(f, 1 - f)
+    ax.plot(f, seen, "o", color=pal.cyan, ms=6)
+    ax.annotate(f"{f} looks like {seen:.2f}", (f, seen), xytext=(dx, 4),
+                textcoords="offset points", ha=ha, va="bottom", color=pal.cyan, fontsize=9)
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 0.75)
+ax.set_xlabel("true frequency (cycles per sample)")
+ax.set_ylabel("frequency the\nsamples show")
+plt.show()
+```
+
+Up to 0.5 cycles per sample the line rises along the dashed diagonal: each
+cosine appears as itself, and different cosines appear different. Past 0.5
+it folds back, so every frequency the samples can show below 0.5 is shared
+by two true frequencies, $f$ and $1-f$. The fold sits at $f=0.5$, two
+samples per cycle, and this dividing line is the **Nyquist limit**.
+
+Aliasing alone does not doom a signal, because a band limit can rule twins
+out, the way it ruled out the fast curve's extra wave. It can only rule out a
+twin that lies outside the band. The figure tests three bandwidths, 0.38,
+0.5 and 0.62 cycles per sample, with the samples one unit apart as always.
+Each signal (gray) is drawn beside its spectrum, together with the spectrum
+of its twins (pink): every cosine moved from $f$ to $1-f$.
+
+```{code-cell} python
+:tags: [hide-input]
+TRUE = ep.style.neutral(0.6)
+t_q = np.linspace(0, 12, 1200)
+n_q = np.arange(0, 13)
+
+
+def zero_at_samples(cap):
+    """A change, inside a band reaching `cap`, that is zero at every sample."""
+    if cap < 0.5:
+        return None
+    if cap == 0.5:
+        return lambda t: 0.9 * np.sin(np.pi * t)
+    return lambda t: 0.9 * (np.cos(2 * np.pi * 0.55 * t - 1) - np.cos(2 * np.pi * 0.45 * t + 1))
+
+
+titles = {
+    0.38: "bandwidth 0.38: one curve through the samples",
+    0.5: "bandwidth 0.5: a second curve fits",
+    0.62: "bandwidth 0.62: a second curve fits",
+}
+fig, axes = pair_axes(3, 6.2)
+for (left, right), (cap, seed) in zip(axes, ((0.38, 21), (0.5, 22), (0.62, 23))):
+    sig, f, size = capped(cap, seed, taper=0)
+    left.plot(t_q, sig(t_q), color=TRUE, lw=1.4)
+    change = zero_at_samples(cap)
+    if change is not None:
+        left.plot(t_q, sig(t_q) + change(t_q), color=pal.pink, lw=1.6)
+    left.plot(n_q, sig(n_q), "o", color=pal.cyan, ms=4.5)
+    left.set_xlim(0, 12)
+    left.set_ylim(-4, 4)
+    left.set_title(titles[cap], fontsize=11)
+
+    band_f = np.array([0, cap, cap])
+    band = np.array([1, 1, 0])
+    right.fill_between(band_f, 0, band, color=TRUE, alpha=0.35, lw=0)
+    right.plot(band_f, band, color=TRUE, lw=1.3)
+    right.fill_between(1 - band_f, 0, band, color=pal.pink, alpha=0.3, lw=0)
+    right.plot(1 - band_f, band, color=pal.pink, lw=1.3)
+    right.axvline(0.5, color=SCENERY, lw=1, ls="--")
+    right.set_xlim(0, 1)
+    right.set_ylim(0, 1.25)
+    right.set_yticks([])
+    right.set_title("its spectrum and its twins", fontsize=11)
+axes[0, 1].text(0.51, 1.08, "Nyquist 0.5", color=SCENERY, fontsize=9)
+axes[0, 1].text(0.2, 1.08, "signal", color=TRUE, fontsize=9, ha="center")
+axes[0, 1].text(0.8, 1.08, "twins", color=pal.pink, fontsize=9, ha="center")
+axes[2, 1].text(0.5, 1.08, "both allowed", fontsize=9, ha="center")
+plt.show()
+```
+
+In the top row the band stops at 0.38, so its twins fill 0.62 to 1 and never
+touch it. The band limit rules every twin out, and no second curve in the
+band fits the samples. In the bottom row the band reaches 0.62 and its twins
+reach down to 0.38, so between 0.38 and 0.62 a cosine and its twin are both
+allowed. The pink curve swaps a cosine at 0.45 for its twin at 0.55: it is a
+different curve with the same bandwidth, yet it passes through every
+sample.
+
+The middle row is the edge case. The band and its twins meet at 0.5,
+where a cosine is its own twin and can sit on its zero crossings, as the pink
+curve shows.
+
+The second requirement is therefore to **place the samples close enough that
+the bandwidth stays below the Nyquist limit**, strictly below it, so that
+the band and its twins never meet.
 
 One number says how much of that allowance a grid uses, the **oversampling
 factor** $\rho=2f_{\max}$, the bandwidth as a fraction of the Nyquist limit.
 Despite its name, a smaller $\rho$ means more samples per cycle than
 needed, and $\rho=1$ is the limit itself. The test signal has
 $\rho=2\times0.38=0.76$: at least 2.6 samples per cycle of any cosine it
-can contain.
+can contain. The three rows of the figure above have
+$\rho=0.76$, 1 and 1.24.
 
 :::{admonition} Known result: the sampling theorem
 :class: seealso
