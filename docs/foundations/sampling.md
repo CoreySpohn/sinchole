@@ -145,10 +145,12 @@ decides whether samples can capture it.
 A cosine alone is a very particular shape, but adding several cosines with
 different frequencies, sizes and starting points (**phases**) builds new
 shapes. The animation builds the slow curve of the first figure this way,
-one cosine at a time, starting from the slowest. On the left are the running
-sum (pink) and the newest cosine (yellow, drawn below it); the faint gray
-curve is the target. On the right, each cosine added lights a stem whose
-position is its frequency and whose height is its size.
+one cosine at a time, starting from the slowest. The top panel shows the
+cosine being added at each step (yellow), and the panel below shows the sum
+of every cosine added so far (pink), with the target curve faint behind it.
+Both use the same vertical scale, so the sizes compare directly. On the
+right, each cosine appears as a stem whose position is its frequency and
+whose height is its size: the step's cosine in yellow, earlier ones in cyan.
 
 ```{code-cell} python
 :tags: [hide-input]
@@ -159,42 +161,53 @@ position is its frequency and whose height is its size.
 by_freq = np.argsort(np.abs(freqs))
 t_b = np.linspace(0, 11, 700)
 partials = np.cumsum([component(k, t_b) for k in by_freq], axis=0)
+Y_LIM = (signal(t_b).min() - 0.8, signal(t_b).max() + 1.0)
 
 
 def buildup_axes():
-    fig, (left, right) = plt.subplots(
-        1, 2, figsize=(9, 3.0), constrained_layout=True,
+    fig, axd = plt.subplot_mosaic(
+        [["new", "spec"], ["sum", "spec"]], figsize=(9, 3.9), constrained_layout=True,
         gridspec_kw={"width_ratios": [1.5, 1]},
     )
-    left.plot(t_b, signal(t_b), color=FAINT, lw=3)
-    left.set_xlim(0, 11)
-    left.set_ylim(-11, signal(t_b).max() + 1.5)
-    left.set_yticks([])
-    left.set_xlabel(r"position $t$ (samples)")
-    left.text(10.9, signal(t_b).max() + 1.2, "running sum", color=pal.pink, ha="right",
-              va="top", fontsize=9)
-    right.vlines(np.abs(freqs), 0, np.abs(amps), color=FAINT, lw=2)
-    right.set_xlim(0, 0.5)
-    right.set_ylim(0, 2.3)
-    right.set_xlabel("frequency (cycles per sample)")
-    right.set_ylabel("size")
-    right.set_title("the recipe (sizes only)", fontsize=11)
-    return fig, left, right
+    for name in ("new", "sum"):
+        ax = axd[name]
+        ax.axhline(0, color=FAINT, lw=0.8)
+        ax.set_xlim(0, 11)
+        ax.set_ylim(*Y_LIM)
+        ax.set_ylabel("value")
+    axd["new"].tick_params(labelbottom=False)
+    axd["sum"].plot(t_b, signal(t_b), color=FAINT, lw=3)
+    axd["sum"].set_xlabel(r"position $t$ (samples)")
+    axd["sum"].set_title("running sum", color=pal.pink, fontsize=11)
+    spec = axd["spec"]
+    spec.vlines(np.abs(freqs), 0, np.abs(amps), color=FAINT, lw=2)
+    spec.set_xlim(0, 0.5)
+    spec.set_ylim(0, 2.3)
+    spec.set_xlabel("frequency (cycles per sample)")
+    spec.set_ylabel("size")
+    spec.set_title("the recipe (sizes only)", fontsize=11)
+    return fig, axd
 
 
-fig, left, right = buildup_axes()
-(running,) = left.plot([], [], color=pal.pink, lw=2)
-(newest,) = left.plot([], [], color=pal.yellow, lw=1.2)
-lit = right.vlines([], [], [], color=pal.cyan, lw=2.4)
-readout = left.text(0.01, 0.03, "", transform=left.transAxes, fontsize=10)
+fig, axd = buildup_axes()
+(newest,) = axd["new"].plot([], [], color=pal.yellow, lw=1.8)
+new_title = axd["new"].set_title("", color=pal.yellow, fontsize=11)
+(running,) = axd["sum"].plot([], [], color=pal.pink, lw=2)
+earlier = axd["spec"].vlines([], [], [], color=pal.cyan, lw=2.4)
+current = axd["spec"].vlines([], [], [], color=pal.yellow, lw=3)
+
+
+def stem(j):
+    return [(abs(freqs[j]), 0), (abs(freqs[j]), abs(amps[j]))]
 
 
 def draw(fig, k):
+    j = by_freq[k - 1]
+    newest.set_data(t_b, component(j, t_b))
+    new_title.set_text(f"cosine {k} of 12 being added: {abs(freqs[j]):.2f} cycles per sample")
     running.set_data(t_b, partials[k - 1])
-    newest.set_data(t_b, component(by_freq[k - 1], t_b) - 8.5)
-    lit.set_segments([[(abs(freqs[j]), 0), (abs(freqs[j]), abs(amps[j]))]
-                      for j in by_freq[:k]])
-    readout.set_text(f"cosines added: {k} of 12")
+    earlier.set_segments([stem(i) for i in by_freq[: k - 1]])
+    current.set_segments([stem(j)])
 
 
 frames = [1, 1] + [k for k in range(1, 13) for _ in range(2)] + [12] * 3
@@ -204,15 +217,19 @@ clip(anim)
 
 ```{code-cell} python
 :tags: [hide-input]
-fig, left, right = buildup_axes()
-left.plot(t_b, partials[-1], color=pal.pink, lw=2)
-right.vlines(np.abs(freqs), 0, np.abs(amps), color=pal.cyan, lw=2.4)
-left.text(0.01, 0.03, "cosines added: 12 of 12", transform=left.transAxes, fontsize=10)
+fig, axd = buildup_axes()
+for k in range(12):
+    axd["new"].plot(t_b, component(k, t_b), color=pal.cyan, lw=1, alpha=0.7)
+axd["new"].set_title("all twelve cosines", color=pal.cyan, fontsize=11)
+axd["sum"].plot(t_b, partials[-1], color=pal.pink, lw=2)
+axd["sum"].set_title("their sum", color=pal.pink, fontsize=11)
+axd["spec"].vlines(np.abs(freqs), 0, np.abs(amps), color=pal.cyan, lw=2.4)
 plt.show()
 ```
 
-With all twelve cosines in, the pink sum lies on the slow curve and every
-stem is lit. The list of frequencies and sizes is the curve's **spectrum**.
+With all twelve cosines in, the pink sum lies on the slow curve. The still
+shows the twelve cosines together on top, in the same cyan as their stems,
+and their sum below. The list of frequencies and sizes is the curve's **spectrum**.
 The stems show sizes only: each cosine also has a phase, which a complete
 recipe lists too but which these pages never need.
 
