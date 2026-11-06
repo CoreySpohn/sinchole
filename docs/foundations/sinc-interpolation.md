@@ -216,9 +216,9 @@ def draw(fig, count):
 
 
 counts = [1, 2, 3, 4, 6, 8, 11, 16, 24, 40, 80]
-frames = [1] + [c for c in counts for _ in range(2)] + [80] * 3
-anim = ep.render.animate(fig, draw, frames, fps=2)
-HTML(anim.jshtml(dpi=70))
+frames = [1] + counts + [80] * 3
+anim = ep.render.animate(fig, draw, frames, fps=1)
+HTML(anim.jshtml(dpi=80))
 ```
 
 ```{code-cell} python
@@ -414,10 +414,10 @@ def draw(fig, k):
     readout.set_text(f"copies added: {k}    error at t = 0.3: {err:.3f}")
 
 
-counts = [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17, 20, 24, 28, 34, 40, 50, 60, 80, 100, 121]
-frames = [1, 1] + counts + [121] * 3
+counts = [1, 2, 3, 4, 5, 6, 8, 10, 13, 17, 22, 28, 36, 50, 70, 95, 121]
+frames = [1] + counts + [121] * 2
 anim = ep.render.animate(fig, draw, frames, fps=3)
-HTML(anim.jshtml(dpi=70))
+HTML(anim.jshtml(dpi=80))
 ```
 
 ```{code-cell} python
@@ -573,10 +573,10 @@ def draw_query(top, bottom, q, artists=None):
 
 fig, top, bottom = sweep_axes()
 state = draw_query(top, bottom, 0.0)
-queries = np.concatenate([np.zeros(2), np.linspace(0.0, 3.0, 31), np.full(3, 3.0)])
+queries = np.concatenate([np.zeros(1), np.linspace(0.0, 3.0, 25), np.full(2, 3.0)])
 anim = ep.render.animate(fig, lambda fig, q: draw_query(top, bottom, q, state), queries,
-                         fps=8)
-HTML(anim.jshtml(dpi=70))
+                         fps=6)
+HTML(anim.jshtml(dpi=80))
 ```
 
 ```{code-cell} python

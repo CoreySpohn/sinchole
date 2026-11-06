@@ -7,14 +7,17 @@ html[data-theme="dark"] .bd-content div.cell_output img {
 }
 
 /* Animation player: the frame, then one quiet row of controls. */
+/* Frames are saved at a modest dpi to keep pages small; stretch them to the
+   column width so they line up with the stills, which the theme scales the
+   same way. */
 .bd-content .animation {
   display: block;
-  max-width: 100%;
+  width: 100%;
 }
 
 .bd-content .animation > img {
   display: block;
-  max-width: 100%;
+  width: 100%;
   height: auto;
 }
 

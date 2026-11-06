@@ -187,7 +187,7 @@ def draw(fig, k):
 
 frames = [1, 1] + [k for k in range(1, 13) for _ in range(2)] + [12] * 3
 anim = ep.render.animate(fig, draw, frames, fps=2)
-HTML(anim.jshtml(dpi=70))
+HTML(anim.jshtml(dpi=80))
 ```
 
 ```{code-cell} python
@@ -334,7 +334,7 @@ def draw(fig, f):
 
 
 anim = ep.render.animate(fig, draw, sweep, fps=6)
-HTML(anim.jshtml(dpi=70))
+HTML(anim.jshtml(dpi=80))
 ```
 
 ```{code-cell} python
