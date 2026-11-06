@@ -11,9 +11,19 @@ reads, receipts) on top of [eyepiece](https://eyepiece.readthedocs.io). It
 is an optional extra, `pip install "sinchole[viz]"`, and importing sinchole
 never imports it. Every function takes either the sinchole object or plain
 arrays, draws into an `ax` you pass or a new figure, and returns an eyepiece
-`PlotResult`. Every function except `plot_kernel` also provides an `update`
-method that redraws in place for animations. The
+`PlotResult`. Every function except `plot_kernel` and `plot_spacing_rule`
+also provides an `update` method that redraws in place for animations. The
 figures on the theory and practice pages are built from these functions.
+
+:::{admonition} What the gallery cells need
+:class: note
+
+The cells for `plot_read`, `plot_residual`, `plot_check_residuals` and
+`plot_band_spectrum` run on the toy coronagraph in `docs/toy_coronagraph.py`
+of the repository. That file is documentation scaffolding and not part of the
+package: it supplies images and a delivery to draw. Every other cell needs
+only sinchole and eyepiece.
+:::
 
 ```{code-cell} python
 import hwostyle
@@ -51,16 +61,46 @@ result = viz.plot_stencil(3.3, origin=0.0, spacing=1.0, n_nodes=30, ax=ax)
 plt.show()
 ```
 
+## `plot_stencil_2d`
+
+The 1024 taps of one read over the node lattice, marker area proportional to
+the weight and color for its sign. Taps are counted largest first with
+`order="weight"`, and `n_taps` and `fold` (quadrant lattices only) set how
+many are counted and how far negative-node taps have slid onto the stored
+nodes they read. This cell needs no delivery, only a lattice.
+
+```{code-cell} python
+fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
+result = viz.plot_stencil_2d((1.0, 2.0), ((0.0, 0.0), (0.38, 0.38), (31, 31)),
+                             quadrant=True, order="weight", n_taps=200,
+                             fold=1.0, max_area=600.0, ax=ax)
+ax.set_xlim(-6, 8)
+ax.set_ylim(-4, 10)
+plt.show()
+```
+
 ## `plot_coverage`
 
 Stored nodes, mirrored nodes of a quadrant grid, the region where complete
 stencils exist, a domain and one read's stencil rectangle.
 
 ```{code-cell} python
-delivery = tc.quadrant_delivery()
+lattice = sc.Lattice(jnp.zeros(2), jnp.full(2, 0.38), (31, 31))
+domain = sc.Domain("box", "closed", jnp.array([[-5.0, -5.0], [5.0, 5.0]]), jnp.zeros(2))
 fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
-result = viz.plot_coverage(delivery["declared_lattice"], domain=delivery["domain"],
-                           quadrant=True, query=(1.0, 2.0), ax=ax)
+result = viz.plot_coverage(lattice, domain=domain, quadrant=True, query=(1.0, 2.0), ax=ax)
+plt.show()
+```
+
+## `plot_spacing_rule`
+
+The chain from support width to the delivered grid: bandwidth, largest
+admissible spacing, node count and the quadrant lattice. Pass physical inputs,
+or a `Products` and a `Lattice` to draw a delivery. This cell needs neither.
+
+```{code-cell} python
+fig, ax = plt.subplots(figsize=(10, 2.6), constrained_layout=True)
+result = viz.plot_spacing_rule(support_width=1.0, radius=(4.18, 5.70), ax=ax)
 plt.show()
 ```
 
@@ -72,6 +112,7 @@ local peak drawn around the source.
 
 ```{code-cell} python
 toy = tc.ToyCoronagraph()
+delivery = tc.quadrant_delivery()
 reader = tc.reader_for(delivery)
 query = jnp.array([3.2, 1.1])
 read = reader.read(query, jnp.int32(0))
@@ -109,3 +150,5 @@ trace = np.asarray(images[:, 50, 60])
 result = viz.plot_band_spectrum(trace, 0.05, bandwidth=1.0)
 plt.show()
 ```
+
+Next: {doc}`roadmap`.

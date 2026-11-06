@@ -134,3 +134,5 @@ accepted read into a refusal, in one execution mode but not another. A
 library whose decisions depend on how it was compiled cannot give
 reproducible receipts, which is why the floor rule is versioned in the
 kernel profile identity (`exact_quotient_floor_v1`).
+
+Next: {doc}`performance`.

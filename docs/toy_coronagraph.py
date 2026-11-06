@@ -208,3 +208,48 @@ def reader_for(delivery):
         sc.Tiling(pixel_tile=1024),
         delivery["memory"],
     )
+
+
+def kernel_error(rho, kernel=None, trials=40):
+    """Worst reconstruction error of a 32-tap kernel, as a fraction of amplitude.
+
+    Random band-limited signals (twelve cosines with frequencies up to
+    ``rho / 2`` cycles per sample) are sampled at the integers and rebuilt at
+    random offsets inside one cell. This is the measurement behind the error
+    curves on the kernel and admission pages.
+
+    Args:
+        rho: Oversampling factor; Nyquist is 1.
+        kernel: Function of the offset ``q - tap`` in samples; the sinchole
+            Kaiser-sinc weights when omitted.
+        trials: Number of random signals.
+
+    Returns:
+        The worst absolute error divided by the signal's total amplitude.
+    """
+    import numpy as np
+
+    from sinchole.kernel import weights
+
+    if kernel is None:
+
+        def kernel(t):
+            return np.asarray(weights(jnp.asarray(t)))
+
+    worst = 0.0
+    for seed in range(trials):
+        draw = np.random.default_rng(seed)
+        freqs = draw.uniform(-1, 1, 12) * rho / 2
+        amps = draw.normal(size=12)
+        phases = draw.uniform(0, 2 * np.pi, 12)
+
+        def signal(t, f=freqs, a=amps, p=phases):
+            return np.sum(a * np.cos(2 * np.pi * f * np.asarray(t)[..., None] + p), -1)
+
+        query = draw.uniform(-0.5, 0.5, 50)
+        taps = np.floor(query)[:, None] + np.arange(-15, 17)
+        estimate = np.sum(kernel(query[:, None] - taps) * signal(taps), axis=1)
+        worst = max(
+            worst, np.max(np.abs(estimate - signal(query))) / np.abs(amps).sum()
+        )
+    return worst

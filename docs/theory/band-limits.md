@@ -56,7 +56,7 @@ $(3.1, 0.6)\,\lambda_0/D$, serves as the probe.
 As the planet slides along $x$, the probe pixel's brightness traces out a
 curve against the planet's position $s_x$. That curve has wiggles, and their
 frequency is measured in cycles per $\lambda_0/D$ of planet motion, the
-quantity the foundations page called the bandwidth.
+bandwidth defined on the foundations page.
 
 ```{admonition} Predict before reading on
 :class: tip
@@ -243,7 +243,7 @@ varies with the source may not.
 
 ## How does a bandwidth become a node spacing?
 
-The foundations page found that the 32-tap Kaiser-sinc kernel is accurate
+The kernel page found that the 32-tap Kaiser-sinc kernel is accurate
 to about $10^{-6}$ when the oversampling factor $\rho=2Bh$ stays at or below
 0.76. For a monochromatic product at $\lambda_0$ ($\sigma_{\max}=1$) and a
 pupil one diameter wide ($L=1$), the bandwidth is 1 cycle per $\lambda_0/D$,
@@ -254,10 +254,11 @@ $B=\sigma_{\max}L$, the largest admissible spacing along an axis is
 
 $$
 h\le\frac{0.76}{2\,\sigma_{\max}L}.
-$$ A pupil support wider than the
-diameter used for $\lambda_0/D$ (an oversized secondary support, for
-instance) needs a proportionally finer grid, which is why the delivery
-declares the full illuminated widths along $x$ and $y$.
+$$
+
+A pupil support wider than the diameter used for $\lambda_0/D$ (an oversized
+secondary support, for instance) needs a proportionally finer grid, which is
+why the delivery declares the full illuminated widths along $x$ and $y$.
 
 The number of nodes follows from the spacing. A quadrant grid that serves
 reads up to, but not including, $R$ along an axis needs
@@ -265,6 +266,30 @@ $\lceil R/h\rceil+16$ nodes, indices 0 through $\lceil R/h\rceil+15$, because
 each read reaches 16 nodes past the start of its own cell. The physicaloptix starter delivery on {doc}`../validation` serves the
 cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ at $h=0.38$, and $27\times31=837$
 nodes are the smallest quadrant rectangle whose stencils cover it.
+
+The strip chains the whole rule. Read it left to right: the width of the
+illuminated support fixes the bandwidth, the bandwidth fixes the largest
+admissible spacing, the spacing and the region to serve fix the node count
+per axis, and the node count is the quadrant grid, drawn with the region its
+complete stencils serve.
+
+```{code-cell} python
+:tags: [hide-input]
+import jax.numpy as jnp
+
+import sinchole as sc
+
+starter = sc.Lattice(jnp.zeros(2), jnp.full(2, 0.38), (31, 27))
+fig, ax = plt.subplots(figsize=(10, 2.7), constrained_layout=True)
+viz.plot_spacing_rule(lattice=starter, support_width=1.0, sigma_max=1.0, ax=ax)
+plt.show()
+```
+
+The chain for the toy and for the public starter delivery is the same: a
+support one diameter wide, $B=1$, spacing 0.38, and $11+16=27$ nodes along
+$x$ to serve up to 4.18 $\lambda_0/D$. The rectangle is 27 wide and 31 tall
+because the served cell reaches 5.70 along $y$. {doc}`../practice/designers`
+turns this chain into the choices a designer makes.
 
 ## When does the bandwidth bound stop holding?
 
@@ -295,7 +320,7 @@ define.
    and stays inside the band, and only its normalization changes, and the plot
    normalizes it away.
    ```
-3. Reaching back to the foundations page: if a delivery accidentally used
+3. Reaching back to the kernel page: if a delivery accidentally used
    $h=0.45$ for $L=1$ at $\lambda_0$, what is $\rho$, and what error should a
    read expect?
    ```{dropdown} Hint
@@ -313,3 +338,5 @@ grid at $h\le0.76/(2B)$ (0.38 $\lambda_0/D$ for a monochromatic product and a
 one-diameter pupil) can be read between its nodes to about $10^{-6}$. The
 next page halves the cost twice by storing one quadrant and reading the other
 three through symmetry.
+
+Next: {doc}`quadrant-symmetry`.

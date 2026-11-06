@@ -4,15 +4,20 @@ kernelspec:
   name: python3
 ---
 
-# A first read
+# Can you trust a read between the nodes?
 
-This tutorial admits a grid of PSFs, reads it between its nodes and checks
-the reads against direct propagation. It uses the toy Lyot coronagraph from
-the theory pages, whose helper module (`toy_coronagraph.py`, in the `docs`
-folder of the repository) builds a complete quadrant grid: 31 by 31 PSFs at
-spacing 0.38 $\lambda_0/D$, mirror checks, and the declarations sinchole
-requires. {doc}`declarations` explains each declaration, and here they are
-taken as given.
+A planet is rarely where a designer propagated an image, so every use of a
+delivered grid starts with a read at a position nobody computed. The number
+that comes back is only worth using if the grid was fit for the job and the
+read can be checked. This tutorial admits a grid of PSFs, reads it between
+its nodes and checks the reads against direct propagation, so that you end
+with a reader you can trust where it was admitted.
+
+The grid comes from the toy Lyot coronagraph of the theory pages, whose
+helper module (`toy_coronagraph.py`, in the `docs` folder of the repository)
+builds a complete quadrant grid: 31 by 31 PSFs at spacing 0.38 $\lambda_0/D$,
+mirror checks, and the declarations sinchole requires. {doc}`declarations`
+explains each declaration, and here they are taken as given.
 
 ```{code-cell} python
 :tags: [remove-cell]
@@ -103,7 +108,7 @@ plt.show()
 
 The residual is a few parts in $10^7$ of the planet's peak, with no
 structure tied to the planet's core: it is the kernel's truncation error, the
-floor measured on {doc}`../foundations/sinc-interpolation`.
+floor measured on {doc}`../theory/kernel`.
 
 ## Many reads at once
 
@@ -175,7 +180,7 @@ print(f"worst relative to own peak: {relative_own.max():.1e}; "
 
 The two series measure the same errors against two references. Relative to
 each pixel's brightest value (cyan) the error is flat and below $10^{-6}$ at
-every sampled radius, the size the foundations page measured for the kernel. Relative to the planet's
+every sampled radius, the size the kernel page measured. Relative to the planet's
 own peak (pink) it rises behind the occulter, because the denominator falls.
 For science that cares about an occulted planet's photometry, the absolute
 error is what matters, and it is the same small number everywhere.
@@ -202,6 +207,7 @@ except sc.ReadRefused as err:
 You admitted a grid, read it at arbitrary positions individually, in batches
 and under JIT, compared reads with direct propagation, and saw a refusal.
 At the 60 sampled positions, the error stays below $10^{-6}$ of each pixel's
-brightest value. {doc}`declarations` explains what each
-declaration in the toy delivery claims, and {doc}`admission` lists what
-admission refuses and how to fix it.
+brightest value. The next page reads a real delivery through yippy, and
+{doc}`admission` explains what admission refuses and how to fix it.
+
+Next: {doc}`yippy`.

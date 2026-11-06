@@ -5,6 +5,14 @@ The sinchole library grows by adding readers, products and evidence beside the v
 unlocks for a user and what stays fixed, so code written against version 0.1
 keeps working. The order reflects dependencies, not dates.
 
+:::{admonition} Only version 0.1 exists
+:class: warning
+
+The stages Next, Then and Later are aspirational. They are directions the
+design leaves room for, not commitments, and none has a date or an owner.
+Version 0.1 is the one stage that is built.
+:::
+
 ## Version 0.1: sampled intensity grids (now)
 
 Version 0.1 reads off-axis planet intensity images from a regular grid of
@@ -17,7 +25,7 @@ refuses with a reason. Reads run in JAX on CPU, under `eqx.filter_jit` and
 `Coronagraph`. One starter cell of a public LUVOIR-A APLC design has been
 checked end to end ({doc}`validation`).
 
-## Next: release and broader qualification
+## Next (aspirational): release and broader qualification
 
 - **Release hardening.** Publish the first release to PyPI, test the lowest supported
   dependency versions in continuous integration, and keep the yippy backend
@@ -31,7 +39,7 @@ checked end to end ({doc}`validation`).
   not been tested. Arithmetic, memory and speed need qualification there
   before a GPU result carries the same evidence as a CPU result.
 
-## Then: wavelength and stellar products
+## Then (aspirational): wavelength and stellar products
 
 - **Wavelength-resolved products.** A spectral reader that combines several
   monochromatic products, using designer-chosen wavelength nodes and
@@ -49,7 +57,7 @@ checked end to end ({doc}`validation`).
   annulus, radial grids and irregular grids each need their own reader and
   error model, behind the same abstract reader interface.
 
-## Later: error certificates and field tables
+## Later (aspirational): error certificates and field tables
 
 - **Error certificates.** Version 0.1 reports every error bound as unknown
   and refuses every bounded request. A certificate replaces "unknown" with
@@ -74,3 +82,5 @@ names and signatures (`admit_grid`, `Interpolator`, `read_batch`,
 `require_read`, the reason bits and statuses) keep their meaning, existing
 reads keep their numerical profile, and a missing input still refuses rather
 than being filled in.
+
+Next: {doc}`autoapi/index`.

@@ -1,3 +1,9 @@
+---
+file_format: mystnb
+kernelspec:
+  name: python3
+---
+
 # sinchole
 
 **Read a coronagraph's planet PSF at any position between the grid points a
@@ -67,7 +73,8 @@ readable delivery needs: {doc}`practice/designers`.
 
 :::{grid-item-card} You want to know why it works
 Sampling theory in general, then why a coronagraph PSF is band-limited and
-how symmetry halves the grid twice: {doc}`foundations/sinc-interpolation`.
+how symmetry halves the grid twice: {doc}`foundations/sinc-interpolation`,
+then {doc}`theory/kernel`.
 :::
 
 :::{grid-item-card} You want to know what it does not do
@@ -88,6 +95,31 @@ flowchart LR
     I --> P["planet PSF<br/>at any served position"]
     I -->|outside| R
 ```
+
+From a physical support width to the grid a designer delivers, one rule
+chains five quantities. Every delivery in these pages follows it.
+
+```{code-cell} python
+:tags: [remove-input]
+import hwostyle
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+
+import sinchole as sc
+from sinchole import viz
+
+jax.config.update("jax_enable_x64", True)
+hwostyle.use("dark")
+starter = sc.Lattice(jnp.zeros(2), jnp.full(2, 0.38), (31, 27))
+fig, ax = plt.subplots(figsize=(10, 2.5), constrained_layout=True)
+viz.plot_spacing_rule(lattice=starter, support_width=1.0, sigma_max=1.0, ax=ax)
+plt.show()
+```
+
+The strip reads left to right: support width, bandwidth, the largest spacing
+the kernel allows, the node count and the quadrant grid of the starter
+delivery. {doc}`theory/band-limits` derives each step.
 
 - Reads off-axis planet intensity products from a complete signed rectangle
   or a positive quadrant with declared, independently checked two-axis
@@ -126,23 +158,33 @@ practice/first-read
 
 ```{toctree}
 :maxdepth: 1
-:caption: Using sinchole
+:caption: For users
 :hidden:
 
 practice/yippy
-practice/designers
 practice/admission
 ```
 
 ```{toctree}
 :maxdepth: 1
-:caption: Understanding sinchole
+:caption: For designers
+:hidden:
+
+practice/designers
+practice/declarations
+practice/delivery-recipe
+validation
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Understanding
 :hidden:
 
 foundations/sinc-interpolation
+theory/kernel
 theory/band-limits
 theory/quadrant-symmetry
-validation
 ```
 
 ```{toctree}
@@ -150,9 +192,9 @@ validation
 :caption: Reference
 :hidden:
 
-practice/declarations
 reference/numerical-contract
 reference/stencil-floor
+reference/performance
 reference/glossary
 viz
 roadmap

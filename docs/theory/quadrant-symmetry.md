@@ -63,32 +63,31 @@ delivered.
 
 ## A read can cross the axis through mirrored nodes without a seam
 
-The animation moves a planet from $s_x=1.5$ through the axis to $s_x=-1.5$
-at fixed $s_y=3$. On the left, the stored nodes are filled dots, the mirrored
-nodes that exist only by symmetry are hollow, the light gray square is where
-complete stencils exist, and the bright rectangle is the read's 32 by 32
-stencil. On the right is the image that sinchole reads. The
-stencil slides onto mirrored nodes, then the query itself crosses into the
-unstored half, and the planet's core moves smoothly through the axis with no
-seam.
+The left panel of the animation is the stencil view of the kernel page: the
+read's 32 by 32 taps over the node lattice, each marker's area proportional
+to the size of its weight and its color for the sign. Stored nodes are the
+bright dots and the mirrored nodes that exist only by symmetry are dim. The
+animation first holds a read at $s_x=1.5$ and folds every column of taps at a
+negative $x$ onto the stored column it reads.
+
+Then the query moves through the axis to $s_x=-1.5$ at fixed $s_y=3$, with
+the folded stencil reading stored nodes throughout. The right panel is the
+image that the reader returns, and the planet's core moves smoothly through
+the axis with no seam.
 
 ```{code-cell} python
 :tags: [hide-input]
-sx = np.concatenate([np.full(3, 1.5), np.linspace(1.5, -1.5, 31), np.full(5, -1.5)])
+# Medium gate, ground 4 (a sweep whose tracked mark cannot be matched across a
+# strip), S3: a sense reversal. The knob is the query x (with the fold held
+# fixed after its own opening beat); the tracked mark is the stencil, whose
+# columns switch from stored to mirrored nodes as the query crosses the axis,
+# and the right panel must show no seam at that crossing, which a strip of
+# separate stills cannot show.
+sx = np.concatenate([np.full(10, 1.5), np.linspace(1.5, -1.5, 31), np.full(5, -1.5)])
+fold = np.concatenate([np.zeros(3), np.linspace(0, 1, 8)[1:], np.ones(36)])
 path = np.stack([sx, np.full_like(sx, 3.0)], axis=1)
 reads = sc.read_batch(reader, jnp.asarray(path), jnp.zeros(len(sx), dtype=jnp.int32))
 images = np.asarray(reads.intensity)
-
-fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True)
-coverage = viz.plot_coverage(lattice, domain=delivery["domain"], quadrant=True,
-                             query=path[0], ax=left)
-left.set_xlim(-9, 9)
-left.set_ylim(-6, 12)
-psf = viz.plot_read(images[0], pixscale_lod=toy.pixscale_lod, ax=right,
-                    vmin=1e-9, vmax=0.5)
-right.axvline(0, color=ep.style.neutral(0.45), lw=1, ls="--")
-right.set_xlim(-6, 6)
-right.set_ylim(-3, 9)
 
 
 def negative_columns(s):
@@ -97,10 +96,25 @@ def negative_columns(s):
     return int(np.sum(taps < 0))
 
 
+fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True)
+stencil_view = viz.plot_stencil_2d(path[0], lattice, quadrant=True, max_area=250.0, ax=left)
+ep.motion.carried_tag(left, "the stencil of a read")
+left.axvline(0, color=ep.style.neutral(0.45), lw=1, ls="--")
+left.set_xlim(-9, 9)
+left.set_ylim(-5, 12.5)
+left.text(11.2, 11.8, "stored nodes", ha="right", color=ep.style.neutral(0.7), fontsize=8)
+left.text(-8.7, -4.3, "mirrored nodes", color=ep.style.neutral(0.45), fontsize=8)
+psf = viz.plot_read(images[0], pixscale_lod=toy.pixscale_lod, ax=right,
+                    vmin=1e-9, vmax=0.5)
+right.axvline(0, color=ep.style.neutral(0.45), lw=1, ls="--")
+right.set_xlim(-6, 6)
+right.set_ylim(-3, 9)
+
+
 def draw(fig, k):
-    coverage.update(path[k])
+    stencil_view.update(path[k], fold=fold[k])
     psf.update(images[k])
-    left.set_title(rf"$s_x = {sx[k]:+.2f}$: {negative_columns(sx[k])} of 32 stencil columns at $s_x<0$",
+    left.set_title(rf"$s_x = {sx[k]:+.2f}$: {negative_columns(sx[k])} of 32 columns at $s_x<0$",
                    fontsize=10)
 
 
@@ -113,11 +127,12 @@ HTML(anim.jshtml(dpi=62))
 ```{code-cell} python
 :tags: [hide-input]
 fig, axes = plt.subplots(2, 3, figsize=(9, 6), constrained_layout=True)
-for j, k in enumerate((3, 18, 33)):
-    viz.plot_coverage(lattice, domain=delivery["domain"], quadrant=True, query=path[k],
-                      ax=axes[0, j])
+for j, k in enumerate((10, 25, 41)):
+    view = viz.plot_stencil_2d(path[k], lattice, quadrant=True, fold=1.0,
+                               max_area=250.0, ax=axes[0, j])
+    axes[0, j].axvline(0, color=ep.style.neutral(0.45), lw=1, ls="--")
     axes[0, j].set_xlim(-9, 9)
-    axes[0, j].set_ylim(-6, 12)
+    axes[0, j].set_ylim(-5, 12.5)
     axes[0, j].set_title(rf"$s_x = {sx[k]:+.2f}$: {negative_columns(sx[k])} of 32 "
                          r"columns at $s_x<0$", fontsize=9)
     viz.plot_read(images[k], pixscale_lod=toy.pixscale_lod, ax=axes[1, j],
@@ -128,11 +143,9 @@ for j, k in enumerate((3, 18, 33)):
 plt.show()
 ```
 
-Three moments of the sweep: before, on and after the axis. In the top row
-the light gray square is the region where complete stencils exist, the thin
-outline is the permission box, and the bright outline is the read's stencil.
-The middle image, read at $s_x=0$ from a stencil that is almost half mirrored
-nodes, is as clean as the other two.
+Three moments of the sweep: before, on and after the axis, with the folded
+stencil above and the read below. The middle read, at $s_x=0$ from a stencil
+that is almost half mirrored nodes, is as clean as the other two.
 
 Mechanically, a tap at signed node index $(i,j)$ reads the stored image at
 $(|i|,|j|)$, reversing the detector columns when $i<0$ and the rows when
@@ -220,5 +233,6 @@ A quadrant grid reads negative positions by flipping stored images, which
 is exact for optics with the declared two-axis symmetry, and admission
 verifies that symmetry against independent propagations to $10^{-6}$ of the
 local peak before any read. With bandwidth, spacing and symmetry settled, the
-remaining question is practical: building, admitting and reading a grid,
-which {doc}`../practice/first-read` walks through.
+remaining question is what the numerical contract promises about the taps.
+
+Next: {doc}`../reference/numerical-contract`.

@@ -8,6 +8,11 @@ admission
   `Admission` holding either a usable grid or the reasons for refusal.
   See {doc}`../practice/admission`.
 
+aliasing
+: A band-limited signal sampled above the Nyquist limit looks like a slower
+  one that passes through the same samples. See
+  {doc}`../foundations/sinc-interpolation`.
+
 APLC
 : Apodized pupil Lyot coronagraph: an apodizing mask in the pupil, a hard
   occulting disk in the focal plane and a Lyot stop. The LUVOIR-A APLC is the
@@ -41,10 +46,15 @@ independent check
   separately, so a read can be compared with it. Checks are evidence about
   the delivered model at those positions, not a bound elsewhere.
 
+Kaiser window
+: A bell-shaped taper built from the modified Bessel function $I_0$ with a
+  shape parameter $\beta$. The kernel multiplies the sinc by it so the
+  weights fall smoothly to zero at 16 samples. See {doc}`../theory/kernel`.
+
 kernel
 : The weight function $w(t)$ that turns nearby samples into a value between
-  them. The sinchole kernel uses a Kaiser-windowed sinc with half-width 16 samples and
-  shape parameter $\beta=12$. See {doc}`../foundations/sinc-interpolation`.
+  them. The sinchole kernel uses a Kaiser-windowed sinc with half-width 16
+  samples and shape parameter $\beta=12$. See {doc}`../theory/kernel`.
 
 lattice
 : The regular grid of source positions where PSFs were propagated, given by
@@ -55,6 +65,11 @@ local peak
   1 $\lambda_0/D$ of the source. Errors are quoted relative to it, so a
   number such as $10^{-6}$ means one millionth of the planet's own brightest
   pixel.
+
+margin
+: The largest oversampling factor the kernel is admitted at, $\rho=0.76$.
+  Past it the kernel error rises by orders of magnitude, and admission
+  refuses with `KERNEL_MARGIN_FAIL`. See {doc}`../theory/kernel`.
 
 mirror check
 : An independent propagation at a negative source position, compared with
@@ -102,9 +117,24 @@ refusal
   reader refuses rather than filling in a missing input or guessing a premise.
   See {doc}`../practice/admission`.
 
+separable
+: A two-dimensional weight that is the product $w(t_x)\,w(t_y)$ of two
+  one-dimensional weights, so a read adds $32\times32=1024$ taps. See
+  {doc}`../theory/kernel`.
+
 served region
 : Source positions where a read is permitted: inside the declared domain and
   with all 32 by 32 stencil nodes present.
+
+spacing rule
+: The chain from support width $L$ to bandwidth $B=\sigma_{\max}L$, spacing
+  $h\le0.76/(2B)$, node count $\lceil R/h\rceil+16$ per axis and the
+  delivered grid. See {doc}`../theory/band-limits`.
+
+starter grid
+: The public LUVOIR-A APLC delivery of 27 by 31 nodes at spacing 0.38
+  $\lambda_0/D$, serving the cell $3.8\le s_x<4.18$, $5.32\le s_y<5.70$.
+  See {doc}`../validation`.
 
 stencil
 : The 32 nodes per axis around a query whose samples a read combines, from
@@ -112,7 +142,8 @@ stencil
   See {doc}`stencil-floor`.
 
 taps
-: The individual nodes of a stencil, each with its weight.
+: The individual nodes of a stencil, each with its weight. A two-dimensional
+  read adds 1024 of them. See {doc}`../theory/kernel`.
 
 ULP
 : Unit in the last place: the spacing between adjacent floating-point
@@ -122,3 +153,5 @@ ULP
 unknown bound
 : Version 0.1 reports every error bound as `+inf`. Reads in sampling mode
   still return images, and bounded requests refuse.
+
+Next: {doc}`../viz`.
