@@ -1,6 +1,15 @@
 """Sphinx configuration file."""
 
+import os
 from importlib.metadata import version as get_version
+from pathlib import Path
+
+# Executed pages import the toy coronagraph helper that lives beside this file;
+# notebook kernels inherit the environment of the build process.
+_DOCS = str(Path(__file__).resolve().parent)
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    p for p in (_DOCS, os.environ.get("PYTHONPATH", "")) if p
+)
 
 project = "sinchole"
 copyright = "2026, Corey Spohn"
@@ -17,6 +26,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
     "sphinxcontrib.mermaid",
+    "sphinx_design",
     "IPython.sphinxext.ipython_console_highlighting",
 ]
 
@@ -27,7 +37,7 @@ intersphinx_mapping = {
 }
 
 templates_path = []
-exclude_patterns = ["_build", ".build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", ".build", "Thumbs.db", ".DS_Store", "scripts"]
 
 language = "en"
 
@@ -46,7 +56,7 @@ napoleon_use_ivar = True
 # Silence the harmless generated _version import note.
 suppress_warnings = ["autoapi.python_import_resolution"]
 
-myst_enable_extensions = ["amsmath", "dollarmath"]
+myst_enable_extensions = ["amsmath", "dollarmath", "colon_fence", "deflist"]
 myst_fence_as_directive = ["mermaid"]
 
 html_theme = "sphinx_book_theme"
@@ -71,3 +81,4 @@ nb_execution_mode = "auto"
 nb_execution_timeout = 300
 nb_execution_raise_on_error = True
 nb_output_stderr = "remove"
+nb_merge_streams = True
