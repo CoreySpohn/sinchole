@@ -405,7 +405,10 @@ bandwidth $B$ is in cycles per $\lambda_0/D$, and the samples are
 $h$ apart in $\lambda_0/D$. Converting to cycles per sample multiplies by
 the spacing, $f_{\max}=B\,h$. The starter grid has $B=1$ and $h=0.38$, so
 $f_{\max}=0.38$ cycles per sample: the 0.38 here and the 0.38 spacing there
-are the same number for that reason ({doc}`../theory/band-limits`).
+are the same number for that reason ({doc}`../theory/band-limits`). The
+largest spacing that keeps $f_{\max}$ below the Nyquist limit, $1/(2B)=0.5$
+$\lambda_0/D$ for the starter, is called the **Nyquist spacing**, and
+$\rho=2Bh$ is the spacing as a fraction of it.
 :::
 
 ## What happens when the samples are too far apart?
