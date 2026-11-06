@@ -104,7 +104,7 @@ def plot_spacing_rule(
     ink, data = ep.style.role("text"), ep.style.role("data")
     scenery = ep.style.neutral(0.45)
     insets = [
-        ax.inset_axes([0.2 * i + 0.012, 0.1, 0.176, 0.66], zorder=2) for i in range(5)
+        ax.inset_axes([0.2 * i + 0.012, 0.3, 0.176, 0.56], zorder=2) for i in range(5)
     ]
     titles = (
         "support width",
@@ -211,7 +211,7 @@ def plot_spacing_rule(
         texts.append(
             panel.text(
                 0.5,
-                -0.32,
+                -0.42,
                 label,
                 transform=panel.transAxes,
                 ha="center",
