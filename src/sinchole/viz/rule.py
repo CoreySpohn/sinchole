@@ -190,21 +190,43 @@ def plot_spacing_rule(
     count_panel.set_xlabel("node index", fontsize=8)
 
     grid_panel = insets[4]
-    plot_coverage(
-        lattice, quadrant=True, ax=grid_panel, node_kw={"s": 0.4, "linewidths": 0}
+    grid_result = plot_coverage(
+        lattice, quadrant=True, ax=grid_panel, node_kw={"s": 2.5, "linewidths": 0}
     )
+    # The mirrored copies are implied by symmetry and not stored: hide them so
+    # the stored quadrant and the stencil box read as two distinct things.
+    for virtual in grid_result.artists["scatter"][1:]:
+        virtual.set_visible(False)
+    extent_x = (nodes_x - 1) * spacing_x
+    extent_y = (int(shape[0]) - 1) * float(spacing[1])
+    reach_y = (int(shape[0]) - _STENCIL_MARGIN) * float(spacing[1])
+    pad_x, pad_y = 1.08 * extent_x, 1.08 * extent_y
+    grid_panel.set_xlim(-pad_x * 0.45, pad_x)
+    grid_panel.set_ylim(-pad_y * 0.45, pad_y)
+    grid_panel.axhline(0, color=scenery, linewidth=0.5)
+    grid_panel.axvline(0, color=scenery, linewidth=0.5)
     grid_panel.set_xlabel("")
     grid_panel.set_ylabel("")
     grid_panel.set_xticks([])
     grid_panel.set_yticks([])
     grid_panel.text(
-        0.98,
-        0.03,
-        f"serves up to {reach_x:.3g}",
+        0.97,
+        0.04,
+        "stored\nnodes",
         transform=grid_panel.transAxes,
         ha="right",
-        color=ink,
+        color=data,
         fontsize=8,
+    )
+    grid_panel.text(
+        0.03,
+        0.03,
+        f"stencil box\n$|s|<({reach_x:.3g},\\,{reach_y:.3g})$",
+        transform=grid_panel.transAxes,
+        ha="left",
+        va="bottom",
+        color=ink,
+        fontsize=7,
     )
 
     for panel, label in zip(insets, labels, strict=True):
