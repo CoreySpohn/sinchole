@@ -157,10 +157,9 @@ whose height is its size: the step's cosine in yellow, earlier ones in cyan.
 
 ```{code-cell} python
 :tags: [hide-input]
-# Medium gate, ground 4 (a sweep whose tracked mark cannot be matched across a
-# strip), S1: one knob, the number of cosines added, value on screen. The
-# tracked mark is the running sum taking shape, linked to the stem that each
-# added cosine lights; twelve paired states cannot be matched across a strip.
+# An animation rather than a strip of stills: the reader follows the running
+# sum taking shape as each cosine lights its stem, and twelve paired states are
+# hard to match across a strip.
 by_freq = np.argsort(np.abs(freqs))
 t_b = np.linspace(0, 11, 700)
 partials = np.cumsum([component(k, t_b) for k in by_freq], axis=0)
@@ -399,6 +398,14 @@ Any bandwidth below 0.5 would serve these two pages. They use 0.38 because
 it is the bandwidth that sinchole's own interpolation is designed for, as
 {doc}`../theory/kernel` explains, so the numbers here carry over. A cosine at
 0.38 cycles per sample completes one cycle every $1/0.38=2.6$ samples.
+
+The theory pages measure the same bandwidth in different units. There the
+signal is a pixel's brightness as the planet moves across the sky, its
+bandwidth $B$ is in cycles per $\lambda_0/D$, and the samples are
+$h$ apart in $\lambda_0/D$. Converting to cycles per sample multiplies by
+the spacing, $f_{\max}=B\,h$. The starter grid has $B=1$ and $h=0.38$, so
+$f_{\max}=0.38$ cycles per sample: the 0.38 here and the 0.38 spacing there
+are the same number for that reason ({doc}`../theory/band-limits`).
 :::
 
 ## What happens when the samples are too far apart?
@@ -436,10 +443,9 @@ down while the true cosine keeps speeding up.
 
 ```{code-cell} python
 :tags: [hide-input]
-# Medium gate, ground 4, S3: one knob, the frequency f, value on screen. The
-# tracked mark is the slowest cosine through the samples; the mid-sweep event
-# is f = 0.5, where it separates from the true cosine and its frequency
-# reverses direction, a sense reversal a strip cannot carry. Still below.
+# An animation rather than a strip: at f = 0.5 the slowest cosine through the
+# samples leaves the true cosine and starts slowing down, a reversal of
+# direction that a strip of stills does not carry. The still follows.
 sweep = np.concatenate([np.full(2, 0.05), np.linspace(0.05, 0.95, 37), np.full(4, 0.95)])
 t_a = np.linspace(0, 10, 1200)
 fig, ax = plt.subplots(figsize=(7.5, 2.8), constrained_layout=True)

@@ -100,18 +100,18 @@ plt.show()
 ```
 
 Every triangle is the same shape, moved to its own sample and scaled by that
-sample's value. Writing the signal as $s(t)$ and the shape as $h$, the value
+sample's value. Writing the signal as $s(t)$ and the shape as $w$, the value
 at any position $t$ is
 
 $$
-s(t)=\sum_{n} s(n)\,h(t-n),
+s(t)=\sum_{n} s(n)\,w(t-n),
 $$
 
 where $s(n)$ is the sample at the integer position $n$, and $t$, the position
 being asked about, is called the **query**. Read aloud: each sample spreads
-its value along the line in the pattern $h$, centered on itself, and the
-value at the query is the total. Linear interpolation is this sum with $h$
-a triangle. The question is which shape $h$ gives back the band-limited
+its value along the line in the pattern $w$, centered on itself, and the
+value at the query is the total. Linear interpolation is this sum with $w$
+a triangle. The question is which shape $w$ gives back the band-limited
 curve instead of straight lines.
 
 ## What must the shape do?
@@ -122,10 +122,10 @@ shape must therefore be 1 at zero and 0 at every other integer. The triangle
 passes this test: at each sample, every other triangle has already fallen to
 zero.
 
-The second test is about frequency. Every copy of $h$ goes into the sum, so
-any cosine that $h$ contains ends up in the result. The shape has to work for
+The second test is about frequency. Every copy of $w$ goes into the sum, so
+any cosine that $w$ contains ends up in the result. The shape has to work for
 every signal the grid can hold, which by the previous page means every signal
-with nothing at or above the Nyquist limit, so $h$ must contain nothing above
+with nothing at or above the Nyquist limit, so $w$ must contain nothing above
 0.5 cycles per sample. That limit is set by the grid, not by the 0.38 of this
 particular signal. The triangle fails here, as its spectrum shows.
 
@@ -140,7 +140,7 @@ ints = np.arange(-6, 7)
 left.plot(ints, np.where(ints == 0, 1.0, 0.0), "o", color=pal.cyan, ms=4)
 left.set_xlim(-6, 6)
 left.set_xlabel(r"position $t$ (samples)")
-left.set_ylabel(r"$h(t)$")
+left.set_ylabel(r"$w(t)$")
 left.set_title("the triangle: passes the first test", fontsize=11)
 spec = np.sinc(f_k) ** 2
 right.plot(f_k, spec, color=pal.yellow, lw=1.6)
@@ -189,9 +189,8 @@ average.
 
 ```{code-cell} python
 :tags: [hide-input]
-# Medium gate, ground 4, S1: one knob, the number N of cosines averaged, value
-# on screen. The tracked mark is the average; the mid-sweep event is its zero
-# crossings settling onto the integers while the peak stays at 1. Still below.
+# An animation: the average's zero crossings settle onto the integers while
+# its peak stays at 1. The still follows.
 t_s = np.linspace(-6, 6, 1001)
 ints = np.arange(-6, 7)
 
@@ -306,9 +305,9 @@ cancellation of the figure.
 ```{dropdown} Why no other shape passes both tests
 Sampling a shape at the integers adds its spectrum to copies of itself
 shifted by 1, 2, 3, ... cycles per sample (the same aliasing as the previous
-page). The first test says the samples of $h$ are a single 1 at zero, whose
+page). The first test says the samples of $w$ are a single 1 at zero, whose
 spectrum is flat at 1, so the shifted copies must add up to exactly 1 at
-every frequency. The second test says $h$ has nothing outside $-0.5$ to
+every frequency. The second test says $w$ has nothing outside $-0.5$ to
 $0.5$, so the copies do not overlap, and each must be exactly 1 inside its
 own band. That is the sinc's spectrum, so the shape is the sinc.
 ```
@@ -332,7 +331,7 @@ for row, (name, shape, spec, color) in enumerate(rows):
     ax.plot(ints, np.where(ints == 0, 1.0, 0.0), "o", color=pal.cyan, ms=4)
     ax.set_xlim(-8, 8)
     ax.set_ylim(-0.3, 1.12)
-    ax.set_ylabel(r"$h(t)$")
+    ax.set_ylabel(r"$w(t)$")
     ax.text(7.8, 0.85, name, color=color, ha="right")
     sx.fill_between(f_k, spec, color=color, alpha=0.35, lw=0)
     sx.plot(f_k, spec, color=color, lw=1.6)
@@ -362,7 +361,7 @@ ripple is still about 3 percent of the peak.
 
 ```{admonition} Predict before reading on
 :class: tip
-Use the sinc as the shape $h$. To compute the value at $t=0.3$, which
+Use the sinc as the shape $w$. To compute the value at $t=0.3$, which
 samples contribute: only the two nearest, the nearest ten, or every sample?
 ```
 
@@ -384,10 +383,9 @@ samples keep shifting as more distant copies arrive.
 
 ```{code-cell} python
 :tags: [hide-input]
-# Medium gate, ground 4, S1: one knob, the count k of sinc copies added, value
-# on screen. The tracked mark is the running sum; the mid-sweep event is the
-# sum pinning to each new sample while values between samples still drift. The
-# claim is the slow rate of settling, which no single still carries.
+# An animation: the running sum pins to each new sample while the values
+# between samples keep drifting. The slow settling is the point, and no single
+# still carries a rate.
 QUERY = 0.3
 by_distance = nodes[np.argsort(np.abs(nodes - QUERY), kind="stable")]
 t_win = np.linspace(-7, 8, 1000)
@@ -541,10 +539,9 @@ and the reconstruction passes through that sample exactly.
 
 ```{code-cell} python
 :tags: [hide-input]
-# Medium gate, ground 4, S3: the knob is the query position, value on screen.
-# The tracked mark is the weight pattern, and the mid-sweep event is the
-# crossing of a sample, where the weights collapse to a single 1 and the
-# stencil jumps by one tap; a strip cannot be matched across that jump.
+# An animation: as the query crosses a sample, the weights collapse to a
+# single 1 and the stencil jumps by one tap, which a strip of stills cannot
+# follow across the jump.
 def truncated_value(q):
     tp = stencil_of(q)
     return float(np.sum(np.sinc(q - tp) * signal(tp)))
