@@ -94,7 +94,10 @@ plt.show()
 ```
 
 No. All three curves fit the twelve samples perfectly, and so do infinitely
-many others, so the samples cannot tell us which curve is the real one. To
+many others, so the samples cannot tell us which curve is the real one. The
+fast curve shows how easy such curves are to make: it is the slow curve plus
+one extra wave that is zero at every sample, and this page comes back to it
+once it has the tools to rule it out. To
 pick one we need to know something about the signal itself. What separates
 the three curves is how rapidly each one oscillates: the slow curve rises
 and falls over several samples, while the fast curve rises and falls between
@@ -245,53 +248,146 @@ without proof.
 
 ## A band limit caps how rapidly the signal can oscillate
 
-Because the signal is a sum of cosines, it can have no feature narrower than
-its fastest cosine allows. The right panel below is the slow curve's
-spectrum again, with a line at 0.38 cycles per sample. None of its cosines
-lies above the line, because the test signal was built that way. A frequency
-above which a signal is known to contain nothing is its **bandwidth**
-$f_{\max}$, and a signal with nothing above its bandwidth is
-**band-limited**. The bandwidth is a bound, so the fastest cosine actually
-present, here near 0.31, may sit below it.
+So far the spectrum has been a set of stems, one per cosine. A signal built
+from many cosines packed closely in frequency has so many stems that they
+merge into a filled shape, and its spectrum reads as a curve. The figure
+builds three such signals, each from cosines spaced 0.002 cycles per sample
+apart, with random phases and equal sizes that taper to zero just below a
+cap: 0.1, 0.25 and 0.38 cycles per sample. Above its cap, each signal holds nothing.
 
 ```{code-cell} python
 :tags: [hide-input]
-fig, (left, right) = plt.subplots(
-    1, 2, figsize=(9, 2.8), constrained_layout=True, gridspec_kw={"width_ratios": [1.2, 1]}
-)
-t_e = np.linspace(0, 11, 1100)
-left.axhline(0, color=FAINT, lw=0.8)
-left.plot(t_e, 1.2 * np.sin(2 * np.pi * t_e), color=pal.green, lw=1.5)
-left.plot(n12, np.zeros_like(n12, dtype=float), "o", color=pal.cyan, ms=4.5)
-left.set_xlim(0, 11)
-left.set_xlabel(r"position $t$ (samples)")
-left.set_ylabel("value")
-left.set_title("the fast curve minus the slow curve", fontsize=11)
+def pair_axes(rows, height):
+    """One row per signal: the signal on the left, its spectrum on the right."""
+    fig, axes = plt.subplots(
+        rows, 2, figsize=(9, height), constrained_layout=True, squeeze=False,
+        gridspec_kw={"width_ratios": [1.5, 1]},
+    )
+    for left, right in axes:
+        left.axhline(0, color=FAINT, lw=0.8)
+        left.set_ylabel("value")
+        right.set_ylabel("size")
+    axes[-1, 0].set_xlabel(r"position $t$ (samples)")
+    axes[-1, 1].set_xlabel("frequency (cycles per sample)")
+    return fig, axes
 
-right.vlines(np.abs(freqs), 0, np.abs(amps), color=pal.cyan, lw=2.2)
-right.vlines([1.0], 0, [1.2], color=pal.green, lw=2.2)
-right.axvline(F_MAX, color=pal.pink, lw=1.4)
-right.text(F_MAX + 0.02, 2.05, r"$f_{\max}=0.38$", color=pal.pink, fontsize=10)
-right.text(0.97, 1.3, "fast curve's\nextra cosine", color=pal.green, ha="right", fontsize=9)
-right.set_xlim(0, 1.1)
-right.set_ylim(0, 2.3)
-right.set_xlabel("frequency (cycles per sample)")
-right.set_ylabel("size")
-right.set_title("spectrum", fontsize=11)
+
+def capped(cap, seed, spacing=0.002):
+    """Cosines packed `spacing` apart below `cap`, equal sizes tapering to zero at the cap."""
+    f = np.arange(spacing / 2, cap, spacing)
+    size = np.where(f < 0.8 * cap, 1.0, np.cos(np.pi / 2 * (f - 0.8 * cap) / (0.2 * cap)) ** 2)
+    size *= np.sqrt(2 / np.sum(size**2))  # every signal gets the same spread of values
+    phase = np.random.default_rng(seed).uniform(0, 2 * np.pi, f.size)
+
+    def sig(t):
+        return np.sum(size * np.cos(2 * np.pi * f * np.asarray(t)[..., None] + phase), axis=-1)
+
+    return sig, f, size
+
+
+t_view = np.linspace(0, 30, 2400)
+fig, axes = pair_axes(3, 5.8)
+for (left, right), (cap, seed) in zip(axes, ((0.1, 11), (0.25, 12), (0.38, 13))):
+    sig, f, size = capped(cap, seed)
+    left.plot(t_view, sig(t_view), color=pal.cyan, lw=1.5)
+    left.set_xlim(0, 30)
+    left.set_ylim(-3.5, 3.5)
+    left.set_title(f"built from cosines below {cap}", color=pal.cyan, fontsize=11)
+    f_all = np.concatenate([[0], f, [cap, 0.6]])
+    rel = np.concatenate([[1], size / size.max(), [0, 0]])
+    right.fill_between(f_all, 0, rel, color=pal.cyan, alpha=0.3, lw=0)
+    right.plot(f_all, rel, color=pal.cyan, lw=1.4)
+    right.axvline(cap, color=pal.pink, lw=1.2)
+    right.text(cap + 0.015, 1.02, f"cap {cap}", color=pal.pink, fontsize=10)
+    right.set_xlim(0, 0.6)
+    right.set_ylim(0, 1.2)
+    right.set_yticks([])
+    right.set_title("its spectrum", fontsize=11)
 plt.show()
 ```
 
-The left panel is the fast curve minus the slow curve. It is a single wave
-at 1 cycle per sample, and every sample (cyan) lands on one of its zero
-crossings, which is why both curves fit the same samples. On the right that
-extra wave (green) sits far above the bandwidth, so knowing that the signal
-is band-limited at 0.38 rules the fast curve out.
+Compare the rows from top to bottom. On the right, each spectrum is zero to
+the right of its cap, and raising the cap stretches it further right. On the
+left, the same change makes the signal oscillate faster. Below a cap of 0.1
+cycles per sample, a rise from a trough to the next peak takes about half a
+cycle at the cap, 5 samples or more, while below 0.38 it can take as little
+as 1.3 samples. The right-hand edge of the spectrum sets how rapidly the
+signal can oscillate. It allows fast oscillation without forcing it, since a
+signal need not use every frequency below its cap.
+
+A frequency above which a signal is known to contain nothing is its
+**bandwidth** $f_{\max}$, and a signal with nothing above its bandwidth is
+**band-limited**. In a plot, a band-limited signal is one whose spectrum is
+zero everywhere to the right of a vertical line. The bandwidth is a bound,
+so the spectrum need not reach the line: the slow curve was built below
+0.38, and its fastest cosine sits near 0.31.
+
+Now return to the three curves at the top of the page. The figure below
+redraws them, each beside its spectrum, with the band below 0.38 shaded. One
+extra row splits the fast curve into its two parts: the slow curve, and the
+extra wave $1.2\sin(2\pi t)$ that was added to it. These spectra are measured
+from each curve rather than read off a recipe, so a single cosine shows up as
+a narrow peak at its frequency, as tall as the cosine is large.
+
+```{code-cell} python
+:tags: [hide-input]
+T_LONG = np.arange(-256, 256, 1 / 16)
+WINDOW = np.blackman(T_LONG.size)
+
+
+def spectrum(values):
+    """Measured spectrum of a curve given on T_LONG: a cosine of size A peaks at A."""
+    pad = 4 * T_LONG.size
+    size = np.abs(np.fft.rfft(values * WINDOW, n=pad)) / (WINDOW.sum() / 2)
+    return np.fft.rfftfreq(pad, d=1 / 16), size
+
+
+n_long = np.arange(-256, 256)
+slow = signal(T_LONG)
+extra = 1.2 * np.sin(2 * np.pi * T_LONG)
+rows = (
+    ("the slow curve", slow, pal.pink),
+    ("the extra wave", extra, pal.purple),
+    ("the fast curve: the slow curve plus the extra wave", slow + extra, pal.green),
+    ("straight lines through the samples", np.interp(T_LONG, n_long, signal(n_long)), pal.yellow),
+)
+view = (T_LONG >= 0) & (T_LONG <= 11)
+on_samples = np.searchsorted(T_LONG, n12)
+fig, axes = pair_axes(4, 7.6)
+for (left, right), (name, values, color) in zip(axes, rows):
+    left.plot(T_LONG[view], values[view], color=color, lw=1.5)
+    left.plot(n12, values[on_samples], "o", color=pal.cyan, ms=4)
+    left.set_xlim(0, 11)
+    left.set_ylim(-4, 4)
+    left.set_title(name, color=color, fontsize=11)
+    f, size = spectrum(values)
+    right.axvspan(0, F_MAX, color=pal.pink, alpha=0.12, lw=0)
+    right.axvline(F_MAX, color=pal.pink, lw=1.2)
+    right.plot(f, size, color=color, lw=1.1)
+    right.set_xlim(0, 1.5)
+    right.set_ylim(0, 2.3)
+    right.set_title("its spectrum", fontsize=11)
+axes[0, 1].text(F_MAX + 0.03, 1.9, r"$f_{\max}=0.38$", color=pal.pink, fontsize=10)
+plt.show()
+```
+
+Read the spectra from top to bottom. The slow curve's spectrum is twelve
+narrow peaks at the positions and heights of the twelve stems built
+earlier, all inside the band. The extra wave is a single cosine at 1 cycle
+per sample, and every sample (cyan) lands on one of its zero crossings. The fast curve's spectrum is therefore the slow curve's
+peaks plus one more at 1, outside the band. The straight lines have a corner
+at every sample, and building a sharp corner takes rapid oscillation, so
+their spectrum spills past the band, in small copies of the slow curve's
+peaks reflected about 1 cycle per sample. Of the
+three curves through the twelve samples, only the slow curve is
+band-limited at 0.38.
 
 The first requirement is to **know that the signal is band-limited, and know
-its bandwidth**. This knowledge has to come from where the signal comes from,
-because the samples cannot show it: the extra wave is zero at every one of
-them. For a coronagraph, the bandwidth follows from the size of the telescope
-pupil, which {doc}`../theory/band-limits` derives.
+its bandwidth**. Knowing it is what rules out the other two curves. This
+knowledge has to come from where the signal comes from, because the samples
+cannot show it: the extra wave is zero at every one of them. For a
+coronagraph, the bandwidth follows from the size of the telescope pupil,
+which {doc}`../theory/band-limits` derives.
 
 :::{admonition} Why 0.38?
 :class: note
