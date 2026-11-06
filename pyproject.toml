@@ -21,16 +21,21 @@ dependencies = ["jax>=0.8.1", "equinox>=0.13.2", "jaxtyping>=0.3.3"]
 
 [project.optional-dependencies]
 dev = ["pre-commit>=3.5.0"]
+viz = ["eyepiece>=0.17.0", "matplotlib>=3.11.0"]
 docs = [
+    "eyepiece>=0.17.0",
+    "hwostyle>=1.7.0",
     "sphinx>=7.2.0",
     "myst-nb>=1.0.0",
     "sphinx-book-theme>=1.1.0",
     "sphinx-autoapi>=3.0.0",
     "sphinxcontrib-mermaid>=0.9",
+    "sphinx-design>=0.6.0",
     "ipython>=8.18.0",
-    "matplotlib>=3.9.0",
+    "matplotlib>=3.11.0",
 ]
 test = [
+    "eyepiece>=0.17.0",
     "pytest>=7.3.2",
     "hypothesis>=6.79.1",
     # The optional budget plugin uses psutil for portable memory sampling.
