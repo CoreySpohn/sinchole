@@ -8,9 +8,10 @@ Image simulators, yield codes and exposure-time calculators need the PSF of
 a planet wherever the planet happens to be, but a coronagraph designer can
 only deliver a finite grid of propagated images. Something has to fill the
 gaps, and whatever fills them puts its error straight into planet
-photometry. The sinchole library fills them with a windowed-sinc reconstruction that is
-exact in the limit the physics allows, checks before every use that the grid
-meets the conditions behind that statement, and refuses when it does not. It
+photometry. The sinchole library fills them with a windowed-sinc
+reconstruction, the interpolation that sampling theory makes exact for a
+band-limited signal, checks before every use that the grid meets the
+conditions that theory needs, and refuses when it does not. It
 is written in [JAX](https://github.com/jax-ml/jax) and
 [Equinox](https://github.com/patrick-kidger/equinox).
 
@@ -32,6 +33,23 @@ pixel within 1 $\lambda_0/D$ of the planet), while blending neighboring
 images, yippy's existing interpolation, is off by 5 percent here and 19
 percent at worst. Details on {doc}`validation`.
 ```
+
+:::{admonition} Who can use this today
+:class: note
+
+- **Monochromatic, off-axis products only.** Version 0.1 reads planet PSFs
+  at one wavelength. Stellar and sky products stay with yippy, and band-mean
+  products are declared but not yet demonstrated.
+- **One real delivery exists.** The evidence above is one design (the public
+  LUVOIR-A APLC) read at 16 independent interior positions and 20 mirror
+  positions. The one-part-in-a-million figure is what those checks measured,
+  not a bound: every read reports its error bound as unknown.
+- **A delivery costs propagations.** The starter cell above is 837 PSFs
+  (about 57 MB, close to the 52 MB legacy off-axis file for the same
+  design), at a spacing set by the optics ({doc}`theory/band-limits`)
+  rather than by convenience.
+- **Install from git for now.** A PyPI release is pending.
+:::
 
 ::::{grid} 1 1 2 2
 :gutter: 3

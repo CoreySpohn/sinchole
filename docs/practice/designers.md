@@ -49,7 +49,8 @@ hwostyle.use("dark")
    near the edge of the served region reach 16 nodes beyond it.
 4. **Fix the detector frame.** Same shape, pixel pitch and center for every
    image. For a quadrant, the center at `((nx - 1)/2, (ny - 1)/2)` (between
-   the middle pixels, not on one), with increasing column following positive
+   the middle pixels for an even dimension, on the middle pixel for an odd
+   one), with the star at that center and increasing column following positive
    source $x$ and increasing row positive source $y$. No recentering, shifts,
    rotations or crops per image.
 5. **Keep the units source-independent.** Integrate over each pixel (or

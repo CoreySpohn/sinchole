@@ -12,7 +12,7 @@ from sinchole._types import F64, I32, Boolean, check_array, check_static
 from sinchole.domain import Domain
 
 if TYPE_CHECKING:
-    from sinchole.grid import SampledGrid
+    import sinchole.grid
 
 
 class Reason(IntFlag):
@@ -117,7 +117,7 @@ class Receipt:
 class Admission:
     """Opaque host result; call require() for strict construction."""
 
-    grid: "SampledGrid | None"
+    grid: "sinchole.grid.SampledGrid | None"
     receipt: Receipt
     reason_bits: int
 
@@ -126,7 +126,7 @@ class Admission:
         """Whether a complete admitted grid is available."""
         return self.grid is not None
 
-    def require(self) -> "SampledGrid":
+    def require(self) -> "sinchole.grid.SampledGrid":
         """Return the grid, or raise an admission exception with this receipt."""
         if self.grid is None:
             exception = AdmissionRefused
@@ -226,7 +226,7 @@ class AbstractErrorModel(eqx.Module):
         product_index: I32,
         weight_l1_xy: F64,
         *,
-        grid: "SampledGrid",
+        grid: "sinchole.grid.SampledGrid",
     ) -> Ledger:
         """Return a ledger bound to this grid, domain and execution profile."""
 
@@ -242,7 +242,7 @@ class UnknownErrorModel(AbstractErrorModel):
         product_index: I32,
         weight_l1_xy: F64,
         *,
-        grid: "SampledGrid",
+        grid: "sinchole.grid.SampledGrid",
     ) -> Ledger:
         """Issue unknown rows; full signed grids have no symmetry error term."""
         terms = (

@@ -11,6 +11,8 @@ Sampling reads retain the delivered units and signed excursions, with unknown
 error bounds (`+inf`). Independent check residuals are empirical diagnostics.
 Bounded-policy reads always refuse in this version.
 
+Documentation: <https://sinchole.readthedocs.io>.
+
 Install with `pip install sinchole`. Enable JAX x64 before creating arrays or
 readers. Samples remain float32 or float64; gathered pixels, weights and
 contractions use float64. No weight, DC, flux or photon-unit normalization is

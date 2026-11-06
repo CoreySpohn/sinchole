@@ -31,6 +31,7 @@ docs = [
     "sphinx-autoapi>=3.0.0",
     "sphinxcontrib-mermaid>=0.9",
     "sphinx-design>=0.6.0",
+    "ipykernel>=6.29.0",
     "ipython>=8.18.0",
     "matplotlib>=3.11.0",
 ]
@@ -50,6 +51,7 @@ test = [
 
 [project.urls]
 Homepage = "https://github.com/CoreySpohn/sinchole"
+Documentation = "https://sinchole.readthedocs.io"
 Issues = "https://github.com/CoreySpohn/sinchole/issues"
 
 [tool.hatch.version]
