@@ -311,7 +311,7 @@ plt.show()
 Compare the rows from top to bottom. On the right, each spectrum is zero to
 the right of its cap, and raising the cap stretches it further right. On the
 left, the same change makes the signal oscillate faster. Below a cap of 0.1
-cycles per sample, a rise from a trough to the next peak takes about half a
+cycles per sample, a rise from a low point to the next high point takes about half a
 cycle at the cap, 5 samples or more, while below 0.38 it can take as little
 as 1.3 samples. The right-hand edge of the spectrum sets how rapidly the
 signal can oscillate. It allows fast oscillation without forcing it, since a
