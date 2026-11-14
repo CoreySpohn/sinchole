@@ -21,7 +21,21 @@ from sinchole.evidence import (
     UnknownErrorModel,
 )
 from sinchole.grid import Products, SampledGrid
-from sinchole.kernel import KernelProfile, flush_subnormal, stencil
+from sinchole.kernel import (
+    AbstractKernelProfile,
+    KernelProfile,
+    PrefilteredKernelProfile,
+    bump_stencil,
+    flush_subnormal,
+    stencil,
+)
+from sinchole.prefilter import (
+    BUILD_CHUNK_BYTES,
+    BUILD_SAMPLE_BYTES,
+    build_coefficients,
+    design_grid,
+    design_record,
+)
 
 
 def _require_precision():
@@ -93,8 +107,18 @@ class MemoryBudget(eqx.Module):
             raise ValueError("Memory budgets must be positive integer byte limits")
 
 
-def estimate_memory(resident_bytes, shape_yx, tiling, queries, *, admission=False):
+def estimate_memory(
+    resident_bytes, shape_yx, tiling, queries, *, admission=False, profile=None
+):
     """Estimate logical allocations, including all result leaves and padding.
+
+    ``resident_bytes`` is the size of the stored samples. ``profile`` None means
+    the raw profile. A prefiltered profile keeps a coefficient table of the same
+    size beside the samples, so its resident estimate is twice the samples; its
+    scratch counts one taps x taps block of images in the storage dtype and in
+    float64, and the load-time build (one float64 detector-row chunk and two
+    transient copies of the coefficients). Detector tiling does not apply to a
+    prefiltered read, so ``tiling.pixel_tile`` is ignored for that profile.
 
     Admission budgets three native copies (input staging, reorder, resident).
     Source count is bounded by resident_bytes / (4 * pixels): at least one
@@ -112,8 +136,19 @@ def estimate_memory(resident_bytes, shape_yx, tiling, queries, *, admission=Fals
     # Eight ledger rows plus all scalar diagnostics accompany each image.
     result_bytes = pixels * 8 + 8 * (8 + 4 + 1) + 39
     output = queries * result_bytes
-    scratch = 32 * 32 * tile * 8 + 32 * tile * 8 + 2 * 32 * 16
-    scratch += ((pixels + tile - 1) // tile) * tile * 8
+    resident = resident_bytes
+    if isinstance(profile, PrefilteredKernelProfile):
+        taps = profile.taps
+        resident = 2 * resident_bytes
+        scratch = 3 * taps * taps * pixels * 8 + 2 * taps * 16 + pixels * 8
+        # The sample count is at most resident_bytes / 4 (float32 storage).
+        chunk = BUILD_SAMPLE_BYTES * (resident_bytes // 4)
+        scratch += max(min(BUILD_CHUNK_BYTES, chunk), chunk // shape_yx[0])
+        # Joining row chunks and then products holds the coefficients twice more.
+        scratch += 2 * resident_bytes
+    else:
+        scratch = 32 * 32 * tile * 8 + 32 * tile * 8 + 2 * 32 * 16
+        scratch += ((pixels + tile - 1) // tile) * tile * 8
     scratch += tiling.query_chunk * result_bytes
     staging = 2 * resident_bytes if admission else 0
     if admission:
@@ -123,11 +158,11 @@ def estimate_memory(resident_bytes, shape_yx, tiling, queries, *, admission=Fals
         # Bounded safe-point candidate coordinates, floor and membership work.
         scratch += 65536
     return dict(
-        resident=resident_bytes,
+        resident=resident,
         output=output,
         scratch=scratch,
         staging=staging,
-        total=resident_bytes + output + scratch + staging,
+        total=resident + output + scratch + staging,
     )
 
 
@@ -177,7 +212,133 @@ class AbstractImageReader(eqx.Module):
         """Read one source [2] and int32 product [], returning delivered units."""
 
 
-class Interpolator(AbstractImageReader):
+def _bind_evidence(grid, domain, profile):
+    """Return a verified covered point and the unknown-error model of a reader."""
+    if not in_supported_range(domain):
+        raise ValueError("Domain lies outside the supported numeric range")
+    point = safe_query(domain, grid.source, grid.reflection.kind != "none", profile)
+    if point is None:
+        raise ValueError("Domain has no covered query")
+    binding = EvidenceBinding(
+        grid.receipt_id,
+        grid.products.identity,
+        "absolute_max_pixel_delivered",
+        f"{profile.identity}:storage-{grid.intensity.dtype}:compute-float64:"
+        f"jax-{jax.__version__}:{jax.default_backend()}:delivered",
+        domain,
+    )
+    return point, UnknownErrorModel(binding)
+
+
+class AbstractGridReader(AbstractImageReader):
+    """Shared refusal and evidence logic of readers over one admitted grid.
+
+    A concrete reader supplies ``_image``, the contraction of its own table at a
+    prevalidated query. Status, reasons and the all-unknown ledger are the same
+    for every profile: no profile turns a delivered grid into a bounded read.
+    """
+
+    grid: eqx.AbstractVar[SampledGrid]
+    domain: eqx.AbstractVar[Domain]
+    profile: eqx.AbstractVar[AbstractKernelProfile]
+    policy: eqx.AbstractVar[ReadPolicy]
+    errors: eqx.AbstractVar[UnknownErrorModel]
+    tiling: eqx.AbstractVar[Tiling]
+    memory: eqx.AbstractVar[MemoryBudget]
+    _safe_query: eqx.AbstractVar[F64]
+
+    @abstractmethod
+    def _image(self, query, product):
+        """Return the float64 image and per-axis weight l1 of a prevalidated query."""
+
+    def _check_grid(self):
+        if not self.grid.receipt_id:
+            raise ValueError("Reader requires an admission receipt identity")
+        if self.grid.reflection.kind not in ("none", "two_axis_pixel_flip_v1"):
+            raise ValueError("Unsupported reflection")
+        if self.grid.reflection.kind != "none" and not bool(
+            jnp.all(self.grid.reflection.check_passed)
+        ):
+            raise ValueError("Reflection checks have not passed")
+        _check_memory(self.memory, self.memory_estimate(1))
+
+    def memory_estimate(self, queries):
+        """Estimate this reader's allocations for ``queries`` serial reads."""
+        return estimate_memory(
+            self.grid.intensity.nbytes,
+            self.products.pixels.shape_yx,
+            self.tiling,
+            queries,
+            profile=self.profile,
+        )
+
+    @property
+    def products(self):
+        """Delegate physical metadata to its sole owner, the sampled grid."""
+        return self.grid.products
+
+    def _validate(self, query, product):
+        """Return sanitized inputs, per-condition flags and the reason mask."""
+        finite = jnp.all(jnp.isfinite(query))
+        sanitized = flush_subnormal(jnp.where(jnp.isfinite(query), query, 0.0))
+        available = (product >= 0) & (product < self.grid.intensity.shape[0])
+        member = self.domain.contains(sanitized)
+        covered = coverage(
+            sanitized,
+            self.grid.source,
+            self.grid.reflection.kind != "none",
+            self.profile,
+        )
+        reason = jnp.asarray(Reason.BOUND_UNKNOWN, dtype=jnp.uint32)
+        for ok, bit in (
+            (finite, Reason.NONFINITE_QUERY),
+            (available, Reason.PRODUCT_UNAVAILABLE),
+            (member, Reason.OUTSIDE_DOMAIN),
+            (covered, Reason.INCOMPLETE_STENCIL),
+        ):
+            reason = reason | jnp.where(ok, jnp.uint32(0), jnp.uint32(bit))
+        return sanitized, finite & available & member & covered, reason
+
+    def read(self, source_xy_lod: F64, product_index: I32) -> ImageRead:
+        """Return one image; invalid runtime values refuse only their own lane.
+
+        Coordinates and weights use binary64. Exact quotient floors determine
+        every tap, including zero-weight endpoints. Bounded policy leaves
+        sampling_ok independent of its unknown-bound refusal.
+        """
+        _require_precision()
+        query, product = jnp.asarray(source_xy_lod), jnp.asarray(product_index)
+        check_array(query, (2,), (jnp.float64,))
+        check_array(product, (), (jnp.int32,))
+        _check_memory(self.memory, self.memory_estimate(1))
+        sanitized, sampling_ok, reason = self._validate(query, product)
+        temporary_product = jnp.where(
+            (product >= 0) & (product < self.grid.intensity.shape[0]), product, 0
+        )
+        accepted = sampling_ok & (self.policy.mode == "sampling")
+        if self.grid._has_checks:
+            reason = reason | jnp.uint32(Reason.EMPIRICAL_ONLY)
+        safe = jnp.where(accepted, sanitized, self._safe_query)
+        image, gain = self._image(safe, temporary_product)
+        ledger = self.errors.evaluate(safe, temporary_product, gain, grid=self.grid)
+        return ImageRead(
+            jnp.where(accepted, image, jnp.nan),
+            accepted,
+            sampling_ok,
+            jnp.asarray(
+                jnp.where(accepted, Status.SAMPLING_ADMITTED, Status.REFUSED),
+                dtype=jnp.int32,
+            ),
+            reason,
+            jnp.asarray(False),
+            jnp.asarray(BoundKind.UNKNOWN, dtype=jnp.int32),
+            jnp.asarray(jnp.inf, dtype=jnp.float64),
+            self.grid._empirical_max_abs,
+            ledger,
+        )
+
+
+class Interpolator(AbstractGridReader):
     """Resident raw Kaiser-sinc reader with internally bound unknown evidence."""
 
     grid: SampledGrid
@@ -192,49 +353,18 @@ class Interpolator(AbstractImageReader):
     def __init__(self, grid, domain, profile, policy, tiling, memory):
         """Bind an admitted grid and a nonempty covered domain on the host."""
         _require_precision()
+        if not isinstance(profile, KernelProfile):
+            raise TypeError("Interpolator reads with the raw KernelProfile")
+        if grid.profile_id not in ("", profile.identity):
+            raise ValueError("Grid was admitted under a different kernel profile")
         self.grid, self.domain, self.profile = grid, domain, profile
         self.policy, self.tiling, self.memory = policy, tiling, memory
-        if not in_supported_range(domain):
-            raise ValueError("Domain lies outside the supported numeric range")
-        point = safe_query(domain, grid.source, grid.reflection.kind != "none")
-        if point is None:
-            raise ValueError("Domain has no covered query")
-        self._safe_query = point
-        binding = EvidenceBinding(
-            grid.receipt_id,
-            grid.products.identity,
-            "absolute_max_pixel_delivered",
-            f"{profile.identity}:storage-{grid.intensity.dtype}:compute-float64:"
-            f"jax-{jax.__version__}:{jax.default_backend()}:delivered",
-            domain,
-        )
-        self.errors = UnknownErrorModel(binding)
+        self._safe_query, self.errors = _bind_evidence(grid, domain, profile)
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
-        if not self.grid.receipt_id:
-            raise ValueError("Reader requires an admission receipt identity")
-        if self.grid.reflection.kind not in ("none", "two_axis_pixel_flip_v1"):
-            raise ValueError("Unsupported reflection")
-        if self.grid.reflection.kind != "none" and not bool(
-            jnp.all(self.grid.reflection.check_passed)
-        ):
-            raise ValueError("Reflection checks have not passed")
-        _check_memory(
-            self.memory,
-            estimate_memory(
-                self.grid.intensity.nbytes,
-                self.products.pixels.shape_yx,
-                self.tiling,
-                1,
-            ),
-        )
-
-    @property
-    def products(self):
-        """Delegate physical metadata to its sole owner, the sampled grid."""
-        return self.grid.products
+        self._check_grid()
 
     def _image(self, query, product):
         taps, weight = stencil(
@@ -288,64 +418,97 @@ class Interpolator(AbstractImageReader):
         )
         return output[:pixels].reshape(ny, nx), jnp.sum(jnp.abs(weight), axis=1)
 
-    def read(self, source_xy_lod: F64, product_index: I32) -> ImageRead:
-        """Return one image; invalid runtime values refuse only their own lane.
 
-        Coordinates and weights use binary64. Exact quotient floors determine
-        every tap, including zero-weight endpoints. Bounded policy leaves
-        sampling_ok independent of its unknown-bound refusal.
-        """
+class PrefilteredReader(AbstractGridReader):
+    """Kaiser-Bessel bump reader of coefficients filtered once at construction.
+
+    Construction is the load step: it designs the deapodization filter for the
+    grid's declared band in float64, filters the stored samples along both
+    source axes and keeps the coefficients, in the storage dtype, beside the raw
+    samples. A read then sums ``profile.taps`` squared coefficient images.
+
+    ``design`` holds the same ordered (key, value) pairs as the admission
+    receipt's ``kernel_design``, evaluated for this reader's domain. They
+    describe the kernel on the declared band. Reads carry the same unknown
+    error bound as raw reads.
+    """
+
+    grid: SampledGrid
+    domain: Domain
+    profile: PrefilteredKernelProfile
+    policy: ReadPolicy
+    errors: UnknownErrorModel
+    tiling: Tiling
+    memory: MemoryBudget
+    _safe_query: F64
+    coefficients: jax.Array
+    design: tuple[tuple[str, float], ...] = eqx.field(static=True)
+    _shape_xy: F64
+    _scale_xy: F64
+    _gain_xy: F64
+
+    def __init__(self, grid, domain, profile, policy, tiling, memory):
+        """Bind an admitted grid and build its coefficient table on the host."""
         _require_precision()
-        query, product = jnp.asarray(source_xy_lod), jnp.asarray(product_index)
-        check_array(query, (2,), (jnp.float64,))
-        check_array(product, (), (jnp.int32,))
-        _check_memory(
-            self.memory,
-            estimate_memory(
-                self.grid.intensity.nbytes,
-                self.products.pixels.shape_yx,
-                self.tiling,
-                1,
-            ),
+        if not isinstance(profile, PrefilteredKernelProfile):
+            raise TypeError("PrefilteredReader needs a PrefilteredKernelProfile")
+        if grid.profile_id != profile.identity:
+            raise ValueError("Grid was admitted under a different kernel profile")
+        self.grid, self.domain, self.profile = grid, domain, profile
+        self.policy, self.tiling, self.memory = policy, tiling, memory
+        self._safe_query, self.errors = _bind_evidence(grid, domain, profile)
+        _check_memory(memory, self.memory_estimate(1))
+        designs = design_grid(
+            profile,
+            grid.products,
+            grid.source,
+            grid.reflection.kind != "none",
+            domain,
         )
-        finite = jnp.all(jnp.isfinite(query))
-        sanitized = flush_subnormal(jnp.where(jnp.isfinite(query), query, 0.0))
-        available = (product >= 0) & (product < self.grid.intensity.shape[0])
-        temporary_product = jnp.where(available, product, 0)
-        member = self.domain.contains(sanitized)
-        covered = coverage(
-            sanitized, self.grid.source, self.grid.reflection.kind != "none"
+        self.design = design_record(designs)
+        self.coefficients = build_coefficients(grid.intensity, designs)
+        self._shape_xy = jnp.asarray([d.beta for d in designs], dtype=jnp.float64)
+        self._scale_xy = jnp.asarray([d.scale for d in designs], dtype=jnp.float64)
+        self._gain_xy = jnp.asarray([d.sample_gain for d in designs], dtype=jnp.float64)
+
+    def __check_init__(self):
+        """Validate the declared structure before numerical use."""
+        check_static(self)
+        self._check_grid()
+        check_array(
+            self.coefficients, self.grid.intensity.shape, (self.grid.intensity.dtype,)
         )
-        sampling_ok = finite & available & member & covered
-        accepted = sampling_ok & (self.policy.mode == "sampling")
-        reason = jnp.asarray(Reason.BOUND_UNKNOWN, dtype=jnp.uint32)
-        for ok, bit in (
-            (finite, Reason.NONFINITE_QUERY),
-            (available, Reason.PRODUCT_UNAVAILABLE),
-            (member, Reason.OUTSIDE_DOMAIN),
-            (covered, Reason.INCOMPLETE_STENCIL),
-        ):
-            reason = reason | jnp.where(ok, jnp.uint32(0), jnp.uint32(bit))
-        if self.grid._has_checks:
-            reason = reason | jnp.uint32(Reason.EMPIRICAL_ONLY)
-        safe = jnp.where(accepted, sanitized, self._safe_query)
-        image, gain = self._image(safe, temporary_product)
-        ledger = self.errors.evaluate(safe, temporary_product, gain, grid=self.grid)
-        return ImageRead(
-            jnp.where(accepted, image, jnp.nan),
-            accepted,
-            sampling_ok,
-            jnp.asarray(
-                jnp.where(accepted, Status.SAMPLING_ADMITTED, Status.REFUSED),
-                dtype=jnp.int32,
-            ),
-            reason,
-            jnp.asarray(False),
-            jnp.asarray(BoundKind.UNKNOWN, dtype=jnp.int32),
-            jnp.asarray(jnp.inf, dtype=jnp.float64),
-            self.grid._empirical_max_abs,
-            ledger,
+
+    def stencil(self, query):
+        """Return signed int64 taps [2, taps] and bump weights of a valid query."""
+        return bump_stencil(
+            query,
+            self.grid.source.origin_xy_lod,
+            self.grid.source.spacing_xy_lod,
+            self.profile,
+            self._shape_xy,
+            self._scale_xy,
         )
+
+    def _image(self, query, product):
+        taps, weight = self.stencil(query)
+        kx, ky = taps[0], taps[1]
+        table = self.coefficients[product]
+        if self.grid.reflection.kind == "none":
+            count = self.profile.taps
+            block = jax.lax.dynamic_slice(
+                table, (ky[0], kx[0], 0, 0), (count, count, *table.shape[2:])
+            )
+        else:
+            block = table[jnp.abs(ky)[:, None], jnp.abs(kx)[None, :]]
+            block = jnp.where((kx < 0)[None, :, None, None], block[..., ::-1], block)
+            block = jnp.where((ky < 0)[:, None, None, None], block[..., ::-1, :], block)
+        image = jnp.einsum(
+            "j,i,jirc->rc", weight[1], weight[0], block.astype(jnp.float64)
+        )
+        # Stored-sample errors reach a read through the composite of filter and
+        # bump, so the gain reported to the error model is the design figure.
+        return image, self._gain_xy
 
 
 def read_batch(
@@ -364,14 +527,16 @@ def read_batch(
     count = queries.shape[0]
     check_array(queries, (count, 2), (jnp.float64,))
     check_array(products, (count,), (jnp.int32,))
-    tiling = reader.tiling if isinstance(reader, Interpolator) else Tiling()
-    resident = reader.grid.intensity.nbytes if isinstance(reader, Interpolator) else 0
-    _check_memory(
-        reader.memory,
-        estimate_memory(resident, reader.products.pixels.shape_yx, tiling, count),
+    gridded = isinstance(reader, AbstractGridReader)
+    tiling = reader.tiling if gridded else Tiling()
+    estimates = (
+        reader.memory_estimate(count)
+        if gridded
+        else estimate_memory(0, reader.products.pixels.shape_yx, tiling, count)
     )
+    _check_memory(reader.memory, estimates)
     if count == 0:
-        if isinstance(reader, Interpolator):
+        if gridded:
             ledger = reader.errors.evaluate(
                 reader._safe_query, jnp.int32(0), jnp.ones(2), grid=reader.grid
             )

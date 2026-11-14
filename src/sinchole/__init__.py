@@ -17,6 +17,7 @@ from sinchole.evidence import (
     BoundKind,
     LedgerEvidence,
     MemoryLimit,
+    PlanRefused,
     PrecisionUnavailable,
     ReadRefused,
     Reason,
@@ -37,12 +38,13 @@ from sinchole.grid import (
     SampledGrid,
     admit_grid,
 )
-from sinchole.kernel import KernelProfile
+from sinchole.kernel import KernelProfile, PrefilteredKernelProfile
 from sinchole.reader import (
     AbstractImageReader,
     ImageRead,
     Interpolator,
     MemoryBudget,
+    PrefilteredReader,
     ReadPolicy,
     Tiling,
     read_batch,
@@ -67,7 +69,10 @@ __all__ = [
     "MirrorCheckSet",
     "Normalization",
     "PixelGrid",
+    "PlanRefused",
     "PrecisionUnavailable",
+    "PrefilteredKernelProfile",
+    "PrefilteredReader",
     "Premises",
     "Products",
     "ReadPolicy",

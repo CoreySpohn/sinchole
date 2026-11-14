@@ -8,7 +8,9 @@ import jax
 import jax.numpy as jnp
 
 from sinchole._types import F64, check_array, check_static
-from sinchole.kernel import exact_quotient_floor_v1, flush_subnormal
+from sinchole.kernel import KernelProfile, flush_subnormal
+
+_RAW_PROFILE = KernelProfile()
 
 
 class Domain(eqx.Module):
@@ -79,24 +81,28 @@ def in_supported_range(domain):
     return (inner == 0 or 1e-6 <= inner <= 1e6) and 1e-6 <= outer <= 1e6
 
 
-def coverage(query, lattice, reflected):
-    """Check floating floor ranges before any potentially overflowing int cast."""
-    floor = exact_quotient_floor_v1(
-        query, lattice.origin_xy_lod, lattice.spacing_xy_lod
-    )
+def coverage(query, lattice, reflected, profile=_RAW_PROFILE):
+    """Check float stencil ranges before any potentially overflowing int cast.
+
+    A query is covered when its taps, and the profile's halo of stored nodes
+    beyond the first and the last tap, all lie inside the signed table.
+    """
+    start = profile.stencil_start(query, lattice.origin_xy_lod, lattice.spacing_xy_lod)
     size = jnp.asarray(lattice.shape_yx[::-1], dtype=jnp.float64)
-    lower = 16 - size if reflected else jnp.full((2,), 15.0)
-    return jnp.all(jnp.isfinite(floor) & (floor >= lower) & (floor <= size - 17))
+    halo = float(profile.halo)
+    lower = halo + 1 - size if reflected else jnp.full((2,), halo)
+    upper = size - halo - profile.taps
+    return jnp.all(jnp.isfinite(start) & (start >= lower) & (start <= upper))
 
 
 @eqx.filter_jit
-def _candidate_membership(points, domain, lattice, reflected):
-    return jax.vmap(lambda q: domain.contains(q) & coverage(q, lattice, reflected))(
-        points
-    )
+def _candidate_membership(points, domain, lattice, reflected, profile):
+    return jax.vmap(
+        lambda q: domain.contains(q) & coverage(q, lattice, reflected, profile)
+    )(points)
 
 
-def safe_query(domain, lattice, reflected):
+def safe_query(domain, lattice, reflected, profile=_RAW_PROFILE):
     """Find and verify a point in the domain/coverage intersection.
 
     Test inclusive coverage endpoints before their inward neighbours, box
@@ -109,11 +115,12 @@ def safe_query(domain, lattice, reflected):
     origin = lattice.origin_xy_lod.tolist()
     spacing = lattice.spacing_xy_lod.tolist()
     size = lattice.shape_yx[::-1]
+    below, above = profile.coverage_margins
     low = [
-        o + h * (16 - n if reflected else 15)
+        o + h * (above - n if reflected else below)
         for o, h, n in zip(origin, spacing, size, strict=True)
     ]
-    high = [o + h * (n - 16) for o, h, n in zip(origin, spacing, size, strict=True)]
+    high = [o + h * (n - above) for o, h, n in zip(origin, spacing, size, strict=True)]
     if domain.kind == "box":
         bounds = domain.limits_xy_lod.tolist()
         low = [max(a, b) for a, b in zip(low, bounds[0], strict=True)]
@@ -157,7 +164,7 @@ def safe_query(domain, lattice, reflected):
                             point = [value, sign * other]
                             candidates.append(point if axis == 0 else point[::-1])
     points = jnp.asarray(candidates, dtype=jnp.float64)
-    valid = _candidate_membership(points, domain, lattice, reflected).tolist()
+    valid = _candidate_membership(points, domain, lattice, reflected, profile).tolist()
     for index, permitted in enumerate(valid):
         if permitted:
             return points[index]

@@ -43,14 +43,31 @@ def analytic(source, asymmetric=False, shape=(8, 6)):
     return image
 
 
-def delivery(quadrant=False, asymmetric=False, half=20, shape=(8, 6)):
-    count = half + 1 if quadrant else 2 * half + 1
-    origin = 0.0 if quadrant else -half * 0.25
-    lattice = sc.Lattice(jnp.full(2, origin), jnp.full(2, 0.25), (count, count))
+def delivery(
+    quadrant=False,
+    asymmetric=False,
+    half=20,
+    shape=(8, 6),
+    spacing=0.25,
+    truth=None,
+    limit=1.0,
+):
+    """Build admission inputs; ``truth`` maps a source [2] to an image of ``shape``."""
+    if truth is None:
+
+        def truth(q):
+            return analytic(q, asymmetric, shape)
+
+    # ``half`` and ``spacing`` are scalars or (x, y) pairs.
+    half = jnp.broadcast_to(jnp.asarray(half), (2,))
+    spacing = jnp.broadcast_to(jnp.asarray(spacing, dtype=jnp.float64), (2,))
+    count = tuple(int(n) + 1 if quadrant else 2 * int(n) + 1 for n in half)
+    origin = jnp.zeros(2) if quadrant else -half * spacing
+    lattice = sc.Lattice(origin, spacing, (count[1], count[0]))
     iy, ix = jnp.indices(lattice.shape_yx, dtype=jnp.int32)
     indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
     offsets = lattice.origin_xy_lod + indices * lattice.spacing_xy_lod
-    images = jax.vmap(lambda q: analytic(q, asymmetric, shape))(offsets)[None]
+    images = jax.vmap(truth)(offsets)[None]
     pixels = sc.PixelGrid(
         shape,
         jnp.array([(shape[1] - 1) / 2, (shape[0] - 1) / 2]),
@@ -88,16 +105,16 @@ def delivery(quadrant=False, asymmetric=False, half=20, shape=(8, 6)):
         jnp.array([False]),
     )
     domain = sc.Domain(
-        "box", "closed", jnp.array([[-1.0, -1.0], [1.0, 1.0]]), jnp.zeros(2)
+        "box", "closed", jnp.array([[-limit, -limit], [limit, limit]]), jnp.zeros(2)
     )
     mirrors = None
     if quadrant:
         signed = jnp.array([[-1, 1], [1, -1], [-1, -1]], dtype=jnp.int32)
-        positions = signed * 0.25
+        positions = signed * spacing
         mirrors = sc.MirrorCheckSet(
             positions,
             signed,
-            jax.vmap(lambda q: analytic(q, asymmetric, shape))(positions),
+            jax.vmap(truth)(positions),
             jnp.zeros(3, dtype=jnp.int32),
             "independent",
         )
@@ -112,6 +129,68 @@ def delivery(quadrant=False, asymmetric=False, half=20, shape=(8, 6)):
         memory=sc.MemoryBudget(100_000_000, 10_000_000, 10_000_000, 400_000_000),
         mirror_checks=mirrors,
     )
+
+
+def tone_truth(shape=(6, 5), symmetric=True, terms=6, seed=0):
+    """Return a band-limited truth q -> image and the l1 norm of its spectrum.
+
+    Every pixel is a constant plus products of cosines in the two source
+    coordinates with frequencies up to exactly 1 cycle per lambda/D, the band
+    edge that ``delivery`` declares (unit support extent at the reference
+    wavelength). The symmetric form satisfies the two-axis detector-flip
+    symmetry exactly; the other adds phases that break it.
+    """
+    keys = jax.random.split(jax.random.key(seed), 4)
+    nu = jax.random.uniform(keys[0], (terms, 2), minval=0.2, maxval=1.0)
+    nu = nu.at[0].set(1.0).at[1, 0].set(1.0).at[2, 1].set(1.0)
+    amplitude = jax.random.uniform(keys[1], (terms,), minval=0.2, maxval=1.0)
+    phase = jax.random.uniform(keys[2], (terms, 2), maxval=2 * jnp.pi)
+    phase = phase * (0.0 if symmetric else 1.0)
+    rows, columns = jnp.indices(shape, dtype=jnp.float64)
+    xpix = (columns - (shape[1] - 1) / 2) * 0.37
+    ypix = (rows - (shape[0] - 1) / 2) * 0.41
+    floor = float(jnp.sum(amplitude)) + 0.5
+
+    def truth(q):
+        x = jnp.cos(
+            2 * jnp.pi * nu[:, 0, None, None] * (q[0] - xpix) + phase[:, 0, None, None]
+        )
+        y = jnp.cos(
+            2 * jnp.pi * nu[:, 1, None, None] * (q[1] - ypix) + phase[:, 1, None, None]
+        )
+        return floor + jnp.sum(amplitude[:, None, None] * x * y, axis=0)
+
+    return truth, floor + float(jnp.sum(amplitude))
+
+
+def tone_delivery(
+    quadrant=False, symmetric=True, half=(22, 20), shape=(6, 5), spacing=(0.3, 0.28)
+):
+    """A band-edge delivery with unequal axes and a prefilter-sized budget.
+
+    Sampling ratios are 0.6 (x) and 0.56 (y); the table and the detector are
+    not square, so an axis or flip mix-up cannot cancel.
+    """
+    truth, norm = tone_truth(shape, symmetric)
+    data = delivery(
+        quadrant, half=half, shape=shape, spacing=spacing, truth=truth, limit=2.0
+    )
+    data["memory"] = sc.MemoryBudget(100_000_000, 10_000_000, 60_000_000, 400_000_000)
+    return data, truth, norm
+
+
+def make_prefiltered(data, taps=7, tiling=None):
+    profile = sc.PrefilteredKernelProfile(taps=taps)
+    admission = sc.admit_grid(**data, profile=profile)
+    reader = sc.PrefilteredReader(
+        admission.require(),
+        data["domain"],
+        profile,
+        sc.ReadPolicy(),
+        sc.Tiling(query_chunk=2) if tiling is None else tiling,
+        data["memory"],
+    )
+    return reader, admission.receipt
 
 
 def make_reader(data):
@@ -145,3 +224,17 @@ def quadrant_delivery():
 @pytest.fixture(scope="module")
 def quadrant_reader(quadrant_delivery):
     return make_reader(quadrant_delivery)
+
+
+@pytest.fixture(scope="session")
+def tone_full():
+    data, truth, norm = tone_delivery()
+    reader, receipt = make_prefiltered(data)
+    return dict(data=data, truth=truth, norm=norm, reader=reader, receipt=receipt)
+
+
+@pytest.fixture(scope="session")
+def tone_quadrant():
+    data, truth, norm = tone_delivery(quadrant=True)
+    reader, receipt = make_prefiltered(data)
+    return dict(data=data, truth=truth, norm=norm, reader=reader, receipt=receipt)

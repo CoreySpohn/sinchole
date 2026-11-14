@@ -1,4 +1,6 @@
-"""Raw 32-tap Kaiser-sinc weights and reproducible stencil selection."""
+"""Kernel profiles, their weights and reproducible stencil selection."""
+
+from abc import abstractmethod
 
 import equinox as eqx
 import jax
@@ -6,8 +8,62 @@ import jax.numpy as jnp
 
 from sinchole._types import check_static
 
+# Stored nodes a prefiltered read needs beyond its outermost tap on each side.
+PREFILTER_HALO = 6
 
-class KernelProfile(eqx.Module):
+
+class AbstractKernelProfile(eqx.Module):
+    """Stencil geometry and admission limits that every reader profile declares.
+
+    A read at query phase t = (q - origin) / spacing uses the ``taps`` consecutive
+    nodes that start at ``stencil_start``. Coverage additionally requires ``halo``
+    stored nodes beyond the first and the last tap.
+    """
+
+    name: eqx.AbstractVar[str]
+    floor_rule: eqx.AbstractVar[str]
+
+    @property
+    @abstractmethod
+    def identity(self) -> str:
+        """Return the joint weight and stencil arithmetic identity."""
+
+    @property
+    @abstractmethod
+    def taps(self) -> int:
+        """Taps per source axis in one read."""
+
+    @property
+    @abstractmethod
+    def halo(self) -> int:
+        """Stored nodes required beyond the outermost tap on each side."""
+
+    @property
+    @abstractmethod
+    def margin_limit(self) -> float:
+        """Largest admitted sampling ratio 2 B h."""
+
+    @abstractmethod
+    def stencil_start(self, query, origin, spacing):
+        """Return the float first tap index of a prevalidated query, per axis."""
+
+    @abstractmethod
+    def minimum_size(self, reflected: bool) -> int:
+        """Smallest stored node count per axis that can serve any read."""
+
+    @property
+    def coverage_margins(self):
+        """Phase margins (low, high): covered phases t satisfy low <= t < size - high.
+
+        With reflection the lower limit is -(size - high) instead.
+        """
+        first = self.halo + (self.taps - 1) // 2
+        if self.taps % 2:
+            return first - 0.5, first + 0.5
+        return float(first), float(first + 1)
+
+
+class KernelProfile(AbstractKernelProfile):
     """Fixed unnormalized W=16, beta=12 kernel with versioned floor semantics.
 
     Admission supports spacings and nonzero origin magnitudes in [1e-6, 1e6],
@@ -36,6 +92,96 @@ class KernelProfile(eqx.Module):
         """Return the joint weight and stencil arithmetic identity."""
         return f"{self.name}:{self.floor_rule}"
 
+    @property
+    def taps(self):
+        """Taps per source axis in one read."""
+        return 32
+
+    @property
+    def halo(self):
+        """Stored nodes required beyond the outermost tap on each side."""
+        return 0
+
+    @property
+    def margin_limit(self):
+        """Largest admitted sampling ratio 2 B h."""
+        return 0.76
+
+    def stencil_start(self, query, origin, spacing):
+        """Return the float first tap index, 15 nodes below the exact floor."""
+        return exact_quotient_floor_v1(query, origin, spacing) - 15.0
+
+    def minimum_size(self, reflected):
+        """Smallest stored node count per axis that can serve any read."""
+        return 17 if reflected else 32
+
+
+class PrefilteredKernelProfile(AbstractKernelProfile):
+    """Kaiser-Bessel bump read of coefficients filtered once at load.
+
+    The read sums ``taps`` coefficient images per axis with the bump weights of
+    ``bump``. The coefficients are the stored samples convolved, along both source
+    axes, with a deapodization filter of half-width ``filter_half_width`` designed
+    for the admitted band (see ``sinchole.prefilter``). The tap count is chosen
+    when a delivery is loaded: the delivery itself always holds the raw samples.
+    Odd tap counts center the stencil on the nearest node (halves round up), even
+    counts on the cell that holds the query. The filter half-width (12 nodes at
+    7 taps, 16 otherwise) and the halo are fixed for this profile name.
+    """
+
+    name: str = eqx.field(static=True, default="kaiser_bessel_prefiltered_v1")
+    floor_rule: str = eqx.field(static=True, default="exact_quotient_floor_v1")
+    taps: int = eqx.field(static=True, default=7)
+
+    def __check_init__(self):
+        """Validate the declared structure before numerical use."""
+        check_static(self)
+        if self.name != "kaiser_bessel_prefiltered_v1":
+            raise ValueError("Unsupported kernel profile")
+        if self.floor_rule != "exact_quotient_floor_v1":
+            raise ValueError("Unsupported floor rule")
+        if type(self.taps) is not int or not 5 <= self.taps <= 10:
+            raise ValueError("Prefiltered reads support 5 to 10 taps per axis")
+
+    @property
+    def identity(self):
+        """Return the joint weight, filter and stencil arithmetic identity."""
+        return (
+            f"{self.name}:taps{self.taps}:filter{self.filter_half_width}:"
+            f"halo{self.halo}:{self.floor_rule}"
+        )
+
+    @property
+    def filter_half_width(self):
+        """Half-width, in nodes, of the interior deapodization filter."""
+        return 12 if self.taps == 7 else 16
+
+    @property
+    def halo(self):
+        """Stored nodes required beyond the outermost tap on each side."""
+        return PREFILTER_HALO
+
+    @property
+    def margin_limit(self):
+        """Largest admitted sampling ratio 2 B h."""
+        return 0.64
+
+    def stencil_start(self, query, origin, spacing):
+        """Return the float first tap index from exact floor and half-cell tests."""
+        floor = exact_quotient_floor_v1(query, origin, spacing)
+        if self.taps % 2 == 0:
+            return floor - (self.taps // 2 - 1)
+        return floor + upper_half_cell(query, origin, spacing) - (self.taps - 1) // 2
+
+    def minimum_size(self, reflected):
+        """Smallest stored node count per axis that can serve any read.
+
+        Every coefficient node needs the full filter half-width on at least one
+        side, so the signed table spans at least 2 * filter_half_width + 1 nodes.
+        """
+        signed = max(2 * self.filter_half_width + 1, self.taps + 2 * self.halo)
+        return (signed + 2) // 2 if reflected else signed
+
 
 def flush_subnormal(value):
     """Replace binary64 subnormals by signed zero using integer bits."""
@@ -62,6 +208,22 @@ def exact_quotient_floor_v1(query, origin, spacing):
     return quotient - jnp.where((remainder != 0) & (difference < 0), 1.0, 0.0)
 
 
+def upper_half_cell(query, origin, spacing):
+    """Return 1.0 where the exact phase fraction is at least one half, else 0.0.
+
+    fmod is exact and doubling is exact, so the comparison has no rounding. For
+    negative differences the remainder lies in (-h, 0] and the fraction is
+    (r + h) / h unless r is zero.
+    """
+    difference = flush_subnormal(query) - origin
+    remainder = jnp.fmod(difference, spacing)
+    doubled = 2.0 * remainder
+    upper = jnp.where(
+        difference >= 0, doubled >= spacing, (remainder != 0) & (doubled >= -spacing)
+    )
+    return jnp.where(upper, 1.0, 0.0)
+
+
 def weights(argument):
     """Evaluate raw Kaiser-sinc weights, with safe inactive derivative lanes."""
     active = jnp.abs(argument) < 16.0
@@ -77,3 +239,34 @@ def stencil(query, origin, spacing):
     taps = floor[:, None] + jnp.arange(-15, 17, dtype=jnp.int64)
     phase = (query - origin) / spacing
     return taps, weights(phase[:, None] - taps)
+
+
+def bump(argument, taps, beta):
+    """Evaluate the Kaiser-Bessel bump of support ``taps``.
+
+    The bump is I0(beta * sqrt(1 - (2 u / taps)**2)) / I0(beta) for
+    abs(u) < taps / 2 and zero elsewhere, so it is cut at 1 / I0(beta) rather
+    than falling to zero: a read jumps by about that fraction where its stencil
+    moves to the next cell. It does not interpolate: reads apply it to
+    coefficients, never to raw samples, and do not reproduce a stored sample
+    exactly. Inactive lanes are sanitized before the square root so derivatives
+    stay finite.
+    """
+    half = taps / 2.0
+    active = jnp.abs(argument) < half
+    inside = jnp.where(active, 1.0 - (argument / half) ** 2, 1.0)
+    return jnp.where(active, jnp.i0(beta * jnp.sqrt(inside)) / jnp.i0(beta), 0.0)
+
+
+def bump_stencil(query, origin, spacing, profile, beta, scale):
+    """Return signed int64 taps and float64 bump weights for a prevalidated query.
+
+    ``beta`` and ``scale`` are the per-axis shape and normalization of the design
+    that built the coefficients; the weights are bump / scale.
+    """
+    query = flush_subnormal(query)
+    start = profile.stencil_start(query, origin, spacing).astype(jnp.int64)
+    taps = start[:, None] + jnp.arange(profile.taps, dtype=jnp.int64)
+    phase = (query - origin) / spacing
+    value = bump(phase[:, None] - taps, profile.taps, beta[:, None])
+    return taps, value / scale[:, None]

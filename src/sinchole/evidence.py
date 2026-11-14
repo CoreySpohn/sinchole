@@ -89,6 +89,10 @@ class Receipt:
     whose entries are NaN without a positive local reference. An axis passes
     either by exact identity or by a defined relative residual within tolerance.
     provenance retains ordered (key, text) pairs verbatim and is never traced.
+    kernel_design holds ordered (key, value) pairs for a prefiltered profile and
+    is empty for the raw profile. Its tone errors are sampled maxima of the
+    kernel's response to in-band tones on the declared band: design figures
+    under the delivery's premises, not error bounds on a delivered image.
     """
 
     identity: str = ""
@@ -111,6 +115,7 @@ class Receipt:
     axis_relative: tuple[float, ...] = ()
     axis_exact: tuple[bool, ...] = ()
     provenance: tuple[tuple[str, str], ...] = ()
+    kernel_design: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -166,6 +171,19 @@ class MemoryLimit(AdmissionRefused):
 
 class PrecisionUnavailable(AdmissionRefused):
     """The execution configuration does not support required float64 reads."""
+
+
+class PlanRefused(ValueError):
+    """No prefiltered tap count meets a request; carries the plan and reasons."""
+
+    def __init__(self, plan):
+        """Attach the refused plan, its reason mask and the candidates tried."""
+        self.plan = plan
+        self.reason_bits = int(plan.reason_bits)
+        self.candidates = tuple(plan.candidates)
+        super().__init__(
+            f"{', '.join(reason_names(plan.reason_bits))}: tried {self.candidates}"
+        )
 
 
 class ReadRefused(ValueError):

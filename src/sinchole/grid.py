@@ -11,7 +11,8 @@ import jax.numpy as jnp
 from sinchole._types import F64, I32, Boolean, check_array, check_shape, check_static
 from sinchole.domain import in_supported_range, normal_or_zero, safe_query
 from sinchole.evidence import Admission, Reason, Receipt
-from sinchole.kernel import KernelProfile
+from sinchole.kernel import KernelProfile, PrefilteredKernelProfile
+from sinchole.prefilter import design_grid, design_record, sampling_ratios
 
 
 class Frame(eqx.Module):
@@ -166,7 +167,12 @@ class Reflection(eqx.Module):
 
 
 class SampledGrid(eqx.Module):
-    """Canonical native float32/64 samples [product, sy, sx, row, column]."""
+    """Canonical native float32/64 samples [product, sy, sx, row, column].
+
+    ``profile_id`` names the kernel profile the grid was admitted under; its
+    sampling margin, coverage and empirical checks hold for that profile only.
+    An empty value marks a grid built outside admission.
+    """
 
     intensity: jax.Array
     source: Lattice
@@ -175,6 +181,7 @@ class SampledGrid(eqx.Module):
     receipt_id: str = eqx.field(static=True)
     _empirical_max_abs: F64 = eqx.field(default_factory=lambda: jnp.asarray(jnp.nan))
     _has_checks: bool = eqx.field(static=True, default=False)
+    profile_id: str = eqx.field(static=True, default="")
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
@@ -341,28 +348,13 @@ def _metadata_reasons(products, reflection):
     return reasons
 
 
-def _sampling_reasons(products, spacing):
+def _sampling_reasons(products, spacing, margin_limit):
     reasons = Reason(0)
-    reference = float(products.frame.reference_wavelength_nm)
-    campaign = float(products.campaign_sampling_min_nm)
-    for minimum, extents in zip(
-        products.sampling_min_nm.tolist(),
-        products.support_extent_xy.tolist(),
-        strict=True,
-    ):
-        minima = [minimum] if math.isnan(campaign) else [minimum, campaign]
-        for value in minima:
-            if not math.isfinite(value) or value <= 0:
-                continue
-            for extent, pitch in zip(extents, spacing, strict=True):
-                # Python binary64 operations preserve the declared separate rounding.
-                sigma = reference / value
-                bandwidth = sigma * extent
-                rho = (2.0 * bandwidth) * pitch
-                if not rho < 1.0:
-                    reasons |= Reason.NYQUIST_FAIL
-                if not rho <= 0.76:
-                    reasons |= Reason.KERNEL_MARGIN_FAIL
+    for _, rho in sampling_ratios(products, spacing):
+        if not rho < 1.0:
+            reasons |= Reason.NYQUIST_FAIL
+        if not rho <= margin_limit:
+            reasons |= Reason.KERNEL_MARGIN_FAIL
     return reasons
 
 
@@ -575,7 +567,9 @@ def admit_grid(
         products: Physical frame, support, premises and normalization.
         reflection: Explicit full-grid or two-axis reflection declaration.
         domain: Signed served permission region intersected with stencil coverage.
-        profile: Fixed raw Kaiser-sinc profile and versioned floor rule.
+        profile: Raw Kaiser-sinc profile (default) or a prefiltered profile. The
+            profile sets the sampling margin, the smallest table, coverage and
+            the reader used for ``checks``; the samples stored are raw either way.
         checks: Optional independent off-node empirical comparisons.
         memory: Explicit resident, output, scratch and total byte limits.
         mirror_checks: Required independent signed node checks for quadrants.
@@ -591,7 +585,13 @@ def admit_grid(
         Structural Python shape/dtype mistakes raise TypeError or ValueError.
     """
     # Local import breaks the intentional admission/reader construction cycle.
-    from sinchole.reader import Interpolator, ReadPolicy, Tiling, estimate_memory
+    from sinchole.reader import (
+        Interpolator,
+        PrefilteredReader,
+        ReadPolicy,
+        Tiling,
+        estimate_memory,
+    )
 
     if not isinstance(provenance, tuple) or any(
         not isinstance(pair, tuple)
@@ -612,6 +612,7 @@ def admit_grid(
         Tiling(),
         1,
         admission=True,
+        profile=profile,
     )
     if any(
         allocations[key] > getattr(memory, f"max_{key}_bytes")
@@ -687,7 +688,7 @@ def admit_grid(
         reasons |= Reason.GRID_DUPLICATE
     if not complete:
         reasons |= Reason.GRID_INCOMPLETE
-    if min(sy, sx) < (17 if reflected else 32):
+    if min(sy, sx) < profile.minimum_size(reflected):
         reasons |= Reason.INCOMPLETE_STENCIL
     tau, residual = (), ()
     if rows and geometry_valid:
@@ -696,7 +697,7 @@ def admit_grid(
         )
         if not uniform:
             reasons |= Reason.GRID_NONUNIFORM
-        reasons |= _sampling_reasons(products, spacing)
+        reasons |= _sampling_reasons(products, spacing, profile.margin_limit)
     flat_nodes = nodes.reshape(-1)
     for start in range(0, flat_nodes.size, 65536):
         block = flat_nodes[start : start + 65536]
@@ -707,7 +708,12 @@ def admit_grid(
         if not bool(jnp.all(jnp.isfinite(block) & ~negative)):
             reasons |= Reason.DATA_INVALID
     allocations = estimate_memory(
-        nodes.nbytes, products.pixels.shape_yx, Tiling(), 1, admission=True
+        nodes.nbytes,
+        products.pixels.shape_yx,
+        Tiling(),
+        1,
+        admission=True,
+        profile=profile,
     )
     if any(
         allocations[key] > getattr(memory, f"max_{key}_bytes")
@@ -717,7 +723,7 @@ def admit_grid(
     if (
         geometry_valid
         and domain_valid
-        and safe_query(domain, lattice, reflected) is None
+        and safe_query(domain, lattice, reflected, profile) is None
     ):
         reasons |= Reason.INCOMPLETE_STENCIL
     receipt = Receipt(
@@ -760,6 +766,10 @@ def admit_grid(
     )
     if reasons:
         return Admission(None, receipt, int(reasons))
+    prefiltered = isinstance(profile, PrefilteredKernelProfile)
+    if prefiltered:
+        designs = design_grid(profile, products, lattice, reflected, domain)
+        receipt = replace(receipt, kernel_design=design_record(designs))
     order = jnp.argsort(linear)
     cube = nodes[:, order].reshape(count, sy, sx, *products.pixels.shape_yx)
     if reflected:
@@ -795,7 +805,9 @@ def admit_grid(
         provenance,
     )
     receipt = replace(receipt, identity=identity)
-    grid = SampledGrid(cube, lattice, products, reflection, identity)
+    grid = SampledGrid(
+        cube, lattice, products, reflection, identity, profile_id=profile.identity
+    )
     if checks is not None:
         if checks.intensity.shape[1:] != products.pixels.shape_yx:
             raise ValueError("Check detector shape differs from samples")
@@ -814,7 +826,8 @@ def admit_grid(
         )
         if not valid:
             return Admission(None, receipt, int(Reason.DATA_INVALID))
-        reader = Interpolator(grid, domain, profile, ReadPolicy(), Tiling(), memory)
+        reader_type = PrefilteredReader if prefiltered else Interpolator
+        reader = reader_type(grid, domain, profile, ReadPolicy(), Tiling(), memory)
         absolute, relative = [], []
         for index in range(checks.product_index.size):
             result = reader.read(
@@ -841,6 +854,13 @@ def admit_grid(
             ),
         )
         grid = SampledGrid(
-            cube, lattice, products, reflection, identity, jnp.asarray(empirical), True
+            cube,
+            lattice,
+            products,
+            reflection,
+            identity,
+            jnp.asarray(empirical),
+            True,
+            profile.identity,
         )
     return Admission(grid, receipt, 0)
