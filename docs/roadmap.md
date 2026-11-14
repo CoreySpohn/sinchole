@@ -25,6 +25,11 @@ image with an unknown error bound or refuses with a reason. Reads run in JAX on
 CPU, under `eqx.filter_jit` and `jax.vmap`, and yippy can use sinchole as an
 optional backend for its `Coronagraph`.
 
+A second profile reads from 5 to 10 filtered images per axis instead of 32
+delivered ones, on grids sampled at $\rho\le0.64$, and renders scenes of many
+sources ({doc}`practice/prefiltered-read`). It carries the same evidence as
+the raw profile, and it has been checked on synthetic grids only.
+
 The starter delivery is a public LUVOIR-A APLC design. Its nodes support reads
 anywhere in a mirrored 4.18 by 5.70 box, but its declaration serves only the
 corner cell. Every independent check and every qualification read (the checks
@@ -81,7 +86,9 @@ unqualified.
   intensity grid, so intensity reads stay unchanged.
 - **Scenes and consumers.** Weighted sums of many sources (disks, exozodi,
   multiple planets) with summed error terms, and direct use in
-  exposure-time calculators and image simulators.
+  exposure-time calculators and image simulators. The prefiltered profile
+  already renders such sums ({doc}`practice/prefiltered-read`), with the
+  error bound unknown.
 
 ## What stays fixed
 

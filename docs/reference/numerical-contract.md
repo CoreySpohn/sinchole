@@ -164,6 +164,72 @@ $\rho=2(\lambda_0/\lambda_{\min})Lh$ ({doc}`../foundations/sampling`) in
 binary64. $\rho\ge1$ adds `NYQUIST_FAIL` and $\rho>0.76$ (the limit of the
 {doc}`glossary`) adds `KERNEL_MARGIN_FAIL`. Neither test implies accuracy at any position.
 
+## Prefiltered profile
+
+`PrefilteredKernelProfile(taps=7)` is a second profile for the same grids,
+named `kaiser_bessel_prefiltered_v1`. Its identity string carries the tap
+count, the filter half-width and the halo, for example
+`kaiser_bessel_prefiltered_v1:taps7:filter12:halo6:exact_quotient_floor_v1`.
+{doc}`../practice/prefiltered-read` introduces it. The rules that differ from
+the raw profile are these.
+
+- **Taps.** 5 to 10 per axis, chosen when the grid is admitted. The delivery
+  holds raw samples for every choice.
+- **Stencil.** With `floor` the exact quotient floor of the raw profile, an
+  even tap count uses signed nodes `floor - (taps/2 - 1)` through
+  `floor + taps/2`. An odd count centers on the nearest node, with an exact
+  half rounding up: `center - (taps-1)/2` through `center + (taps-1)/2`. The
+  half-cell test uses the same exact remainder as the floor.
+- **Weights.** A tap at signed distance $u$ has weight
+  $I_0\!\left(\beta\sqrt{1-(2u/\mathrm{taps})^2}\right)/\left(I_0(\beta)\,c\right)$
+  for $|u|<\mathrm{taps}/2$ and zero otherwise, with the shape $\beta$ and the
+  normalization $c$ of the design. The weight at the cut is $1/(I_0(\beta)\,c)$,
+  not zero, so a read is discontinuous by about that fraction where the
+  stencil moves by one node.
+- **Coefficients.** The read applies the weights to coefficient images, the
+  samples filtered along both source axes with the minimum-norm least-squares
+  filter for the design band. The filter half-width is 12 nodes for 7 taps
+  and 16 otherwise, the filter is one-sided near a table end, and the design
+  runs in binary64. Coefficients are stored in the dtype of the samples and
+  the read contracts in float64. A read does not reproduce a stored sample
+  exactly.
+- **Design band.** The band on each axis is the largest $\rho/2$ over the
+  products, in cycles per node, so the design holds at the shortest declared
+  wavelength.
+- **Coverage.** Every tap must lie at least 6 stored nodes (the halo) inside
+  each table end. For a quadrant the mirrored nodes count across the axes.
+  Coverage is decided from the integer first tap, by the same floor
+  arithmetic as the read.
+- **Sampling.** $\rho>0.64$ adds `KERNEL_MARGIN_FAIL`.
+- **Minimum size.** 25 nodes per axis for 7 taps and 33 otherwise, or 13 and
+  17 for a quadrant.
+- **Receipt.** `Receipt.kernel_design` holds ordered `(name, value)` pairs:
+  `taps`, `filter_half_width`, `halo`, and for each axis `band`, `beta`,
+  `tone_error`, `interior_tone_error` and `sample_gain`, plus
+  `tone_error_two_axis`, the sum of the two axis errors and their product.
+  Tone errors are maxima over a sampled set of in-band frequencies and query
+  phases. They are not bounds, and they exclude the rounding of coefficients
+  to the storage dtype. The field is empty for the raw profile, whose receipt
+  identities are unchanged.
+- **Evidence.** Unchanged: accepted reads are `SAMPLING_ADMITTED` with an
+  unknown bound, and a bounded policy refuses. Independent and mirror checks
+  are evaluated with prefiltered reads.
+- **Readers.** `PrefilteredReader` requires a grid admitted with the same
+  profile, and `Interpolator` requires one admitted with the raw profile.
+- **Planning.** `plan_prefilter(*, declared_lattice, products, reflection,
+  domain, max_tone_error)` returns the fewest taps whose
+  `tone_error_two_axis` is at or below the request and refuses with
+  `TOLERANCE_EXCEEDED` when 10 taps are not enough.
+- **Scenes.** `SceneRenderer(reader, product_index, source_xy_lod,
+  margin_nodes=1)` renders `render_points(source_xy_lod, flux)` and
+  `render_raster(scene, x_lod, y_lod)` as one contraction over a node set
+  fixed at construction. The result equals the flux-weighted sum of the
+  single reads to rounding, and the whole image is refused when any source
+  with nonzero flux cannot be read or lies outside the node set.
+- **Memory.** The resident estimate is twice the samples (samples and
+  coefficients). Scratch counts one `taps` by `taps` block of images and the
+  load-time filter workspace, and `Tiling.pixel_tile` is not used.
+
 ## Precision
 
 Enable JAX 64-bit mode before creating arrays or readers. Samples stay in

@@ -181,6 +181,34 @@ measured compiler-workspace or whole-process peak-memory guarantees. The
 library does no file I/O, spectral interpolation, fallback interpolation or
 certificate evaluation.
 
+### Prefiltered profile
+
+`PrefilteredKernelProfile(taps=7)` (`kaiser_bessel_prefiltered_v1`) is a
+faster, less accurate profile for the same grids. Admission with
+`profile=...` filters the samples once along both source axes, in binary64,
+with a minimum-norm least-squares filter for the declared band, and
+`PrefilteredReader` then sums `taps` by `taps` coefficient images with
+Kaiser-Bessel bump weights: 49 images for 7 taps where the raw profile sums 1024. The delivery always holds raw samples; the tap count (5 to 10) is a
+load-time choice. `plan_prefilter(*, declared_lattice, products, reflection,
+domain, max_tone_error)` returns the fewest taps whose design tone error meets
+the request, or refuses.
+
+The profile requires sampling ratios of at most 0.64 (0.76 for the raw
+profile), every tap at least 6 stored nodes inside each table end, and at least 25 nodes
+per axis for 7 taps and 33 otherwise (13 and 17 for quadrants).
+`Receipt.kernel_design` records the tap count, filter half-width, halo, design
+band, bump shape, sampled worst tone errors and sample gain. Those figures are
+sampled maxima for the kernel, not error bounds: reads keep an unknown bound
+and bounded-policy reads still refuse. The bump is cut at a small nonzero
+value, so a read steps by about `1/I0(beta)` of the local scale (about 1e-6
+for 7 taps) where its stencil moves by one node. Resident memory doubles
+because coefficients are held beside the samples.
+
+`SceneRenderer(reader, product_index, source_xy_lod, margin_nodes=1)` renders
+many sources as one contraction over the coefficient images they touch, with
+`render_points(source_xy_lod, flux)` and `render_raster(scene, x_lod, y_lod)`.
+The result equals the flux-weighted sum of single reads to rounding.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

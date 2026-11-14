@@ -407,5 +407,7 @@ filled in:
 
 The next page shows how to read a delivery through yippy, and
 {doc}`admission` explains what admission refuses and how to fix it.
+{doc}`prefiltered-read` trades some of this accuracy for a read that sums 49
+images instead of 1,024.
 
 Next: {doc}`yippy`.

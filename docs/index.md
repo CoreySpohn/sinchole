@@ -211,6 +211,12 @@ $32\times32$ stencil of nodes exists, and it is refused otherwise. A
 - Refuses with named reasons whenever a declaration is missing, a check
   fails or a read falls outside the served region.
 
+A second read profile trades accuracy for speed. It filters the grid once at
+load and then reads from a $7\times7$ block of filtered images instead of the
+$32\times32$ block of delivered ones, on a grid sampled at $\rho\le0.64$, and
+it renders a scene of many sources in one pass
+({doc}`practice/prefiltered-read`).
+
 ## How a grid is sized
 
 The delivered spacing is not a convenience. One rule chains five quantities
@@ -302,6 +308,7 @@ practice/first-read
 
 practice/yippy
 practice/admission
+practice/prefiltered-read
 ```
 
 ```{toctree}

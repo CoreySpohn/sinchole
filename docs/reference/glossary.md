@@ -71,6 +71,12 @@ conjugation
   source position is the conjugate of the reversed field, which supplies a
   mirror symmetry of the intensity. See {doc}`../theory/quadrant-symmetry`.
 
+coefficient image
+: A delivered image stack filtered along both source axes when the grid is
+  loaded, one for each node. The prefiltered profile reads coefficient images
+  with a short bump instead of reading samples with the sinc kernel. See
+  {doc}`../practice/prefiltered-read`.
+
 core flux
 : The summed pixels whose centers lie within 0.7 $\lambda_0/D$ of the true
   source position, the number a yield code uses. Validation reports its
@@ -197,6 +203,11 @@ point sample
 : A pixel value equal to the intensity at the pixel center. The toy images on
   these pages are point samples. See {ref}`recipe-pixel`.
 
+prefiltered read
+: A read that sums 5 to 10 coefficient images per axis with Kaiser-Bessel
+  bump weights. It is faster and less accurate than the raw 32-tap read and
+  needs $\rho\le0.64$. See {doc}`../practice/prefiltered-read`.
+
 premise
 : One of six physical statements the band-limit argument needs (for example
   fixed linear optics), declared with its evidence. See
@@ -290,19 +301,22 @@ starter grid
   $3.8\le s_x<4.18$, $5.32\le s_y<5.70$ as served. See {doc}`../validation`.
 
 stencil
-: The 32 taps along one axis that a read uses around a query, from
+: The taps along one axis that a read uses around a query. For the raw profile
+  these are 32 taps, from
   `floor(t) - 15` through `floor(t) + 16` with $t=(s-o)/h$: 16 at or below the
   query and 16 above. A two-dimensional read uses the $32\times32$ block of
   1024 taps formed by both axes. See {doc}`../foundations/sinc-interpolation`
-  and {doc}`stencil-floor`.
+  and {doc}`stencil-floor`. The prefiltered profile uses 5 to 10 taps per
+  axis ({doc}`../practice/prefiltered-read`).
 
 support width
 : The full illuminated width $L$ of the pupil along an axis, in units of $D$.
   It fixes the bandwidth, $B=\sigma_{\max}L$.
 
 tap
-: One sample used by the reader, with its weight. The stencil is the set of
-  32 taps along an axis. In two dimensions a read uses 1024 taps per pixel,
+: One sample used by the reader, with its weight. For the raw profile the
+  stencil is the set of 32 taps along an axis, and in two dimensions a read
+  uses 1024 taps per pixel,
   each weighted by $w(t_x)\,w(t_y)$. See
   {doc}`../foundations/sinc-interpolation`.
 
@@ -315,6 +329,11 @@ ULP
 : Unit in the last place: the spacing between adjacent floating-point
   numbers at a given magnitude, about $2.2\times10^{-16}$ of the value in
   float64 and $1.2\times10^{-7}$ in float32.
+
+tone error
+: For the prefiltered profile, the largest error of a read on a cosine of
+  unit amplitude inside the design band, over a sampled set of frequencies
+  and query positions. The receipt records it; it is not an error bound.
 
 unknown bound
 : Version 0.1 reports every error bound as `+inf`. Reads in sampling mode

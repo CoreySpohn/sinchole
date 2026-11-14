@@ -153,6 +153,90 @@ The peak figures are the process's peak resident set size after each stage, so
 they only rise. The resident delivery itself is the Delivery line under "Where the numbers were
 taken", and the output of a batch dominates everything else.
 
+## What does the prefiltered profile cost?
+
+The prefiltered profile ({doc}`../practice/prefiltered-read`) sums 49 or 64
+filtered images where the raw read sums 1,024. No benchmark of it on the
+starter delivery exists, because that delivery is sampled at the raw limit
+and the prefiltered profile needs a denser grid. The cell below instead times
+both profiles on the toy coronagraph of the theory pages, a quadrant of 41 by
+41 nodes at a spacing of 0.32 $\lambda_0/D$ with 96 by 96 pixel images in
+float64 storage. It runs when this page is built, so its numbers belong to
+the build machine and vary with its load.
+
+```{code-cell} python
+:tags: [hide-input]
+import time
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+jax.config.update("jax_enable_x64", True)
+
+import sinchole as sc
+
+import toy_coronagraph as tc
+
+delivery = tc.quadrant_delivery(spacing=0.32, nodes=41, domain_half=5.0)
+positions = jnp.asarray(np.random.default_rng(5).uniform(-5.0, 5.0, (64, 2)))
+product = jnp.zeros(64, dtype=jnp.int32)
+tiling = sc.Tiling(query_chunk=8, pixel_tile=96 * 96)
+batch = eqx.filter_jit(lambda reader, q, p: sc.read_batch(reader, q, p).intensity)
+
+
+def steady(function, *arguments, rounds=5):
+    """Return the fastest of several timed calls after one warm-up call."""
+    jax.block_until_ready(function(*arguments))
+    best = float("inf")
+    for _ in range(rounds):
+        start = time.perf_counter()
+        jax.block_until_ready(function(*arguments))
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+def build(profile, kind):
+    """Admit the toy delivery for a profile and time the reader's construction."""
+    start = time.perf_counter()
+    grid = sc.admit_grid(**delivery, profile=profile).require()
+    reader = kind(grid, delivery["domain"], profile, sc.ReadPolicy(), tiling,
+                  delivery["memory"])
+    return reader, time.perf_counter() - start
+
+
+raw, raw_load = build(sc.KernelProfile(), sc.Interpolator)
+rows = [("Raw, 32 taps", raw_load, steady(batch, raw, positions, product) / 64)]
+readers = {}
+for taps in (7, 8):
+    profile = sc.PrefilteredKernelProfile(taps=taps)
+    readers[taps], load = build(profile, sc.PrefilteredReader)
+    rows.append((f"Prefiltered, {taps} taps", load,
+                 steady(batch, readers[taps], positions, product) / 64))
+
+renderer = sc.SceneRenderer(readers[7], 0, positions)
+render = eqx.filter_jit(lambda r, q, f: r.render_points(q, f).intensity)
+scene_time = steady(render, renderer, positions, jnp.ones(64))
+table = "| Profile | Admission and load | Steady read, batch of 64 | Raw / this |\n|---|---|---|---|\n"
+table += "\n".join(
+    f"| {name} | {load:.1f} s | {1e3 * read:.2f} ms per read | {rows[0][2] / read:.0f} |"
+    for name, load, read in rows
+)
+display(Markdown(
+    table + f"\n\nRendering the 64 positions as one scene with 7 taps took "
+    f"{1e3 * scene_time:.2f} ms, against {1e3 * 64 * rows[1][2]:.1f} ms for the 64 "
+    f"separate reads, over {renderer.nodes.shape[0]} touched nodes."
+))
+```
+
+The gain is smaller than the ratio of image counts, 1,024 to 49, because
+both reads also pay for the result and its diagnostics, and because a
+quadrant read gathers mirrored images one by one. Admission and load take
+longer for the prefiltered profile: they design the filter and build the
+coefficient images, once per grid. The accuracy given up for the speed is on
+{doc}`../practice/prefiltered-read`.
+
 ## What to take from this
 
 ```{code-cell} python
