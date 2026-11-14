@@ -3,16 +3,6 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from physicaloptix import (
-    Field,
-    Fraunhofer,
-    Grid,
-    MultiScaleVortex,
-    OpticalPath,
-    PlaneKind,
-    Stage,
-)
-from physicaloptix.elements import SampledOptic
 
 import sinchole as sc
 
@@ -20,7 +10,7 @@ PUPIL_SAMPLES, PIXEL_LOD, DETECTOR = 128, 0.125, 48
 SPACING, NODES = 0.3, 33
 
 
-@pytest.mark.slow
+@pytest.mark.slow(reason="about a thousand coronagraph propagations, 33 s")
 def test_reads_match_direct_vortex_propagation():
     """Fails if prefiltered reads of a real coronagraph leave their design scale.
 
@@ -33,6 +23,18 @@ def test_reads_match_direct_vortex_propagation():
     limits leave a factor of two to three. Slow tier: about a thousand
     propagations.
     """
+    # Imported here so that collecting the quick tier does not need physicaloptix.
+    from physicaloptix import (
+        Field,
+        Fraunhofer,
+        Grid,
+        MultiScaleVortex,
+        OpticalPath,
+        PlaneKind,
+        Stage,
+    )
+    from physicaloptix.elements import SampledOptic
+
     pupil = Grid.pupil(PUPIL_SAMPLES)
     focal = Grid.focal(DETECTOR, PIXEL_LOD)
     coordinate = jnp.asarray(pupil.coords)
