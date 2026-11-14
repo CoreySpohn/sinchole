@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from conftest import make_prefiltered
 from jax.test_util import check_grads
 
 import sinchole as sc
@@ -34,7 +35,7 @@ def case(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="compiles the render and a batch read per table, 4 s")
 def test_points_equal_summed_reads(case):
     """Fails if the fold drops, double counts or mis-flips a touched node.
 
@@ -58,7 +59,7 @@ def test_points_equal_summed_reads(case):
     assert not np.any(np.asarray(result.ledger.evidence))
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="compiles raster, point and batch paths per table, 4 s")
 def test_raster_equals_points_and_summed_reads(case):
     """Fails if the separable raster fold swaps axes or loses a pixel.
 
@@ -82,6 +83,7 @@ def test_raster_equals_points_and_summed_reads(case):
         )
 
 
+@pytest.mark.medium(reason="eleven uncompiled renders on one table, 6 s")
 def test_refusals_padding_and_margin(tone_quadrant):
     """Fails if an unreadable source is dropped silently or padding refuses.
 
@@ -97,9 +99,12 @@ def test_refusals_padding_and_margin(tone_quadrant):
     assert renderer.table.shape == (renderer.nodes.shape[0], 30)
     assert renderer.table.dtype == reader.coefficients.dtype
     good = renderer.render_points(points, flux).intensity
-    outside = renderer.render_points(points.at[3, 0].set(5.0), flux)
+    # (3.0, y) is covered by the table but outside the 2.0 box: one reason only.
+    outside = renderer.render_points(points.at[3, 0].set(3.0), flux)
     assert not bool(outside.accepted) and bool(jnp.all(jnp.isnan(outside.intensity)))
-    assert int(outside.reason_bits) & sc.Reason.OUTSIDE_DOMAIN
+    assert int(outside.reason_bits) == (
+        sc.Reason.OUTSIDE_DOMAIN | sc.Reason.BOUND_UNKNOWN
+    )
     assert int(outside.status) == sc.Status.REFUSED
     broken = renderer.render_points(points.at[3, 1].set(jnp.nan), flux)
     assert int(broken.reason_bits) & sc.Reason.NONFINITE_QUERY
@@ -121,14 +126,65 @@ def test_refusals_padding_and_margin(tone_quadrant):
     far = tight.render_points(points * 0.8 + 3 * shift, flux)
     assert not bool(far.accepted)
     assert int(far.reason_bits) & sc.Reason.INCOMPLETE_STENCIL
+    # A raster moved by four node spacings stays inside the domain and the
+    # table's coverage but leaves the node set that was gathered for it.
     x, y = jnp.linspace(-0.5, 0.5, 3), jnp.linspace(-0.5, 0.5, 3)
+    grid_x, grid_y = jnp.meshgrid(x, y)
+    centers = jnp.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
+    patch = sc.SceneRenderer(reader, 0, centers, margin_nodes=0)
     scene = jnp.ones((3, 3))
-    assert not bool(tight.render_raster(scene, x + 3.0, y).accepted)
+    assert bool(patch.render_raster(scene, x, y).accepted)
+    moved_raster = patch.render_raster(scene, x + 1.2, y)
+    assert not bool(moved_raster.accepted)
+    assert int(moved_raster.reason_bits) == (
+        sc.Reason.INCOMPLETE_STENCIL | sc.Reason.BOUND_UNKNOWN
+    )
+    dark = patch.render_raster(jnp.zeros((3, 3)), x + 1.2, y)
+    assert bool(dark.accepted)
     bounded = eqx.tree_at(
         lambda r: r.reader.policy, renderer, sc.ReadPolicy("bounded", jnp.array(1.0))
     )
     refused = bounded.render_points(points, flux)
     assert not bool(refused.accepted) and bool(refused.sampling_ok)
+
+
+@pytest.mark.medium(reason="admits and builds a float32 table, 5 s")
+def test_float32_storage_renders_like_summed_reads(tone_full):
+    """Fails if a float32 table is contracted in float32.
+
+    A read contracts float32 coefficients in float64. The render must do the
+    same: it then equals the summed reads to float64 rounding (1e-12 of the
+    scene scale), where a float32 contraction differs by about 1e-6.
+    """
+    data = tone_full["data"]
+    single = {
+        **data,
+        "intensity_nodes": data["intensity_nodes"].astype(jnp.float32),
+        "mirror_checks": None,
+    }
+    reader, _ = make_prefiltered(single)
+    points, flux = scene_points()
+    renderer = sc.SceneRenderer(reader, 0, points)
+    assert renderer.table.dtype == jnp.float32
+    result = render_points(renderer, points, flux)
+    assert bool(result.accepted) and result.intensity.dtype == jnp.float64
+    scale = tone_full["norm"] * float(jnp.sum(flux))
+    np.testing.assert_allclose(
+        result.intensity, brute(reader, points, flux), rtol=0, atol=1e-12 * scale
+    )
+    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.7, 4)
+    scene = jax.random.uniform(jax.random.key(2), (4, 6), minval=0.1)
+    grid_x, grid_y = jnp.meshgrid(x, y)
+    centers = jnp.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
+    raster = sc.SceneRenderer(reader, 0, centers, margin_nodes=0).render_raster(
+        scene, x, y
+    )
+    np.testing.assert_allclose(
+        raster.intensity,
+        brute(reader, centers, scene.ravel()),
+        rtol=0,
+        atol=1e-12 * tone_full["norm"] * float(jnp.sum(scene)),
+    )
 
 
 def test_construction_refusals(tone_full):
@@ -161,7 +217,7 @@ def test_construction_refusals(tone_full):
         sc.SceneRenderer(lean, 0, points)
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="reverse-mode compile of the render, 4 s")
 def test_gradients_through_the_render(tone_quadrant):
     """Fails if flux or position gradients are wrong, or NaN on a refused render.
 

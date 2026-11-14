@@ -137,6 +137,9 @@ class SceneRenderer(eqx.Module):
             raise ValueError("Scene table requires one row per touched node")
 
     def _scratch(self, working_bytes):
+        # A table stored below binary64 is widened for the contraction.
+        if self.table.dtype != jnp.float64:
+            working_bytes += self.table.size * 8
         limit = self.reader.memory.max_scratch_bytes
         if working_bytes > limit:
             raise MemoryLimit(f"scene scratch {working_bytes} bytes exceeds budget")
@@ -160,12 +163,14 @@ class SceneRenderer(eqx.Module):
     def _finish(self, amplitudes, accepted, sampling_ok, failures):
         """Contract node amplitudes with the table and attach read diagnostics."""
         reader = self.reader
-        # Full precision keeps accelerator backends from a reduced-precision product.
+        # The contraction accumulates in binary64 whatever the storage dtype, as a
+        # single read does. Full precision keeps accelerator backends from a
+        # reduced-precision product.
         image = jnp.matmul(
-            amplitudes.astype(self.table.dtype),
-            self.table,
+            amplitudes,
+            self.table.astype(jnp.float64),
             precision=jax.lax.Precision.HIGHEST,
-        ).astype(jnp.float64)
+        )
         image = image.reshape(reader.products.pixels.shape_yx)
         reason = jnp.asarray(Reason.BOUND_UNKNOWN, dtype=jnp.uint32)
         for failed, bit in failures:
@@ -194,10 +199,11 @@ class SceneRenderer(eqx.Module):
         """Render point sources [Q, 2] with fluxes [Q] as one image.
 
         The image is the sum over sources of flux times that source's read, in
-        delivered units per unit flux. Node amplitudes are folded in binary64;
-        the final contraction runs in the storage dtype and is returned as
-        float64. The error bound is unknown, as for a single read, and a
-        point-read empirical check does not transfer, so ``empirical_max_abs``
+        delivered units per unit flux. Node amplitudes are folded and contracted
+        with the coefficient images in binary64, whatever the storage dtype, so
+        the image equals the summed reads to binary64 rounding. The error bound
+        is unknown, as for a single read, and a point-read empirical check does
+        not transfer, so ``empirical_max_abs``
         is NaN.
 
         Any contributing source that is non-finite, outside the domain, not
@@ -251,7 +257,8 @@ class SceneRenderer(eqx.Module):
                 (jnp.any(contributing & ~finite), Reason.NONFINITE_QUERY),
                 (jnp.any(contributing & finite & ~member), Reason.OUTSIDE_DOMAIN),
                 (
-                    jnp.any(contributing & finite & ~(covered & stored)),
+                    # ``stored`` is meaningful only for a readable source.
+                    jnp.any(contributing & finite & (~covered | (readable & ~stored))),
                     Reason.INCOMPLETE_STENCIL,
                 ),
             ),
