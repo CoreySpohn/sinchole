@@ -22,16 +22,13 @@ class AbstractKernelProfile(eqx.Module):
 
     name: eqx.AbstractVar[str]
     floor_rule: eqx.AbstractVar[str]
+    # Taps per source axis in one read: a field or a property of the subclass.
+    taps: eqx.AbstractVar[int]
 
     @property
     @abstractmethod
     def identity(self) -> str:
         """Return the joint weight and stencil arithmetic identity."""
-
-    @property
-    @abstractmethod
-    def taps(self) -> int:
-        """Taps per source axis in one read."""
 
     @property
     @abstractmethod

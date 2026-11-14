@@ -25,7 +25,7 @@ class PrefilterPlan:
     tone_error_two_axis: float
     candidates: tuple[tuple[int, float], ...]
     reason_bits: int
-    kernel_design: tuple[tuple[str, float], ...] = ()
+    kernel_design: tuple[tuple[str, int | float], ...] = ()
 
     @property
     def planned(self):

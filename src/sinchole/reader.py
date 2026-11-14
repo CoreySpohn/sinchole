@@ -442,8 +442,8 @@ class PrefilteredReader(AbstractGridReader):
     memory: MemoryBudget
     _safe_query: F64
     coefficients: jax.Array
-    design: tuple[tuple[str, float], ...] = eqx.field(static=True)
-    _shape_xy: F64
+    design: tuple[tuple[str, int | float], ...] = eqx.field(static=True)
+    _beta_xy: F64
     _scale_xy: F64
     _gain_xy: F64
 
@@ -467,7 +467,7 @@ class PrefilteredReader(AbstractGridReader):
         )
         self.design = design_record(designs)
         self.coefficients = build_coefficients(grid.intensity, designs)
-        self._shape_xy = jnp.asarray([d.beta for d in designs], dtype=jnp.float64)
+        self._beta_xy = jnp.asarray([d.beta for d in designs], dtype=jnp.float64)
         self._scale_xy = jnp.asarray([d.scale for d in designs], dtype=jnp.float64)
         self._gain_xy = jnp.asarray([d.sample_gain for d in designs], dtype=jnp.float64)
 
@@ -486,7 +486,7 @@ class PrefilteredReader(AbstractGridReader):
             self.grid.source.origin_xy_lod,
             self.grid.source.spacing_xy_lod,
             self.profile,
-            self._shape_xy,
+            self._beta_xy,
             self._scale_xy,
         )
 

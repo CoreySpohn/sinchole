@@ -115,7 +115,7 @@ class Receipt:
     axis_relative: tuple[float, ...] = ()
     axis_exact: tuple[bool, ...] = ()
     provenance: tuple[tuple[str, str], ...] = ()
-    kernel_design: tuple[tuple[str, float], ...] = ()
+    kernel_design: tuple[tuple[str, int | float], ...] = ()
 
 
 @dataclass(frozen=True)
