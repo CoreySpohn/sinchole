@@ -39,6 +39,7 @@ from sinchole.grid import (
     admit_grid,
 )
 from sinchole.kernel import KernelProfile, PrefilteredKernelProfile
+from sinchole.planner import PrefilterPlan, plan_prefilter
 from sinchole.reader import (
     AbstractImageReader,
     ImageRead,
@@ -71,6 +72,7 @@ __all__ = [
     "PixelGrid",
     "PlanRefused",
     "PrecisionUnavailable",
+    "PrefilterPlan",
     "PrefilteredKernelProfile",
     "PrefilteredReader",
     "Premises",
@@ -85,6 +87,7 @@ __all__ = [
     "Tiling",
     "__version__",
     "admit_grid",
+    "plan_prefilter",
     "read_batch",
     "reason_names",
     "require_read",
