@@ -185,19 +185,23 @@ certificate evaluation.
 
 `PrefilteredKernelProfile(taps=7)` (`kaiser_bessel_prefiltered_v1`) is a
 faster, less accurate profile for the same grids. Admission with
-`profile=...` filters the samples once along both source axes, in binary64,
-with a minimum-norm least-squares filter for the declared band, and
-`PrefilteredReader` then sums `taps` by `taps` coefficient images with
-Kaiser-Bessel bump weights: 49 images for 7 taps where the raw profile sums 1024. The delivery always holds raw samples; the tap count (5 to 10) is a
-load-time choice. `plan_prefilter(*, declared_lattice, products, reflection,
+`profile=...` designs a minimum-norm least-squares filter for the declared
+band, in binary64. Constructing a `PrefilteredReader` filters the samples once
+along both source axes into coefficient images (admission builds them too,
+but only to evaluate an independent `CheckSet`). A read then sums `taps` by
+`taps` coefficient images with Kaiser-Bessel bump weights: 49 images for 7
+taps where the raw profile sums 1024. The delivery always holds raw samples;
+the tap count (5 to 10) is a load-time choice. `plan_prefilter(*, declared_lattice, products, reflection,
 domain, max_tone_error)` returns the fewest taps whose design tone error meets
 the request, or refuses.
 
 The profile requires sampling ratios of at most 0.64 (0.76 for the raw
-profile), every tap at least 6 stored nodes inside each table end, and at least 25 nodes
-per axis for 7 taps and 33 otherwise (13 and 17 for quadrants).
+profile), every tap at least 6 stored nodes inside each table end, and at
+least 25 nodes per axis for 7 taps and 33 otherwise (13 and 17 for
+quadrants).
 `Receipt.kernel_design` records the tap count, filter half-width, halo, design
-band, bump shape, sampled worst tone errors and sample gain. Those figures are
+band, bump shape, sampled worst tone errors and sample gain (the largest
+absolute weight sum a read puts on the samples of one axis). Those figures are
 sampled maxima for the kernel, not error bounds: reads keep an unknown bound
 and bounded-policy reads still refuse. The bump is cut at a small nonzero
 value, so a read steps by about `1/I0(beta)` of the local scale (about 1e-6
@@ -207,7 +211,8 @@ because coefficients are held beside the samples.
 `SceneRenderer(reader, product_index, source_xy_lod, margin_nodes=1)` renders
 many sources as one contraction over the coefficient images they touch, with
 `render_points(source_xy_lod, flux)` and `render_raster(scene, x_lod, y_lod)`.
-The result equals the flux-weighted sum of single reads to rounding.
+The contraction is binary64 for float32 and float64 storage, so the result
+equals the flux-weighted sum of single reads to binary64 rounding.
 
 ## License
 

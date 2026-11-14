@@ -173,7 +173,9 @@ count, the filter half-width and the halo, for example
 {doc}`../practice/prefiltered-read` introduces it. The rules that differ from
 the raw profile are these.
 
-- **Taps.** 5 to 10 per axis, chosen when the grid is admitted. The delivery
+- **Taps.** 5 to 10 per axis, chosen when the grid is admitted. Admission
+  designs the filter, and the reader builds the coefficient images when it is
+  constructed. The delivery
   holds raw samples for every choice.
 - **Stencil.** With `floor` the exact quotient floor of the raw profile, an
   even tap count uses signed nodes `floor - (taps/2 - 1)` through
@@ -212,8 +214,9 @@ the raw profile are these.
   to the storage dtype. The field is empty for the raw profile, whose receipt
   identities are unchanged.
 - **Evidence.** Unchanged: accepted reads are `SAMPLING_ADMITTED` with an
-  unknown bound, and a bounded policy refuses. Independent and mirror checks
-  are evaluated with prefiltered reads.
+  unknown bound, and a bounded policy refuses. Independent checks at
+  off-node positions are evaluated with prefiltered reads. Mirror checks
+  compare stored samples, as for the raw profile, and do not use the profile.
 - **Readers.** `PrefilteredReader` requires a grid admitted with the same
   profile, and `Interpolator` requires one admitted with the raw profile.
 - **Planning.** `plan_prefilter(*, declared_lattice, products, reflection,
@@ -223,12 +226,15 @@ the raw profile are these.
 - **Scenes.** `SceneRenderer(reader, product_index, source_xy_lod,
   margin_nodes=1)` renders `render_points(source_xy_lod, flux)` and
   `render_raster(scene, x_lod, y_lod)` as one contraction over a node set
-  fixed at construction. The result equals the flux-weighted sum of the
-  single reads to rounding, and the whole image is refused when any source
+  fixed at construction. Node amplitudes and the contraction with the
+  coefficient images are binary64 for float32 and float64 storage alike, so
+  the result equals the flux-weighted sum of the single reads to binary64
+  rounding, and the whole image is refused when any source
   with nonzero flux cannot be read or lies outside the node set.
 - **Memory.** The resident estimate is twice the samples (samples and
   coefficients). Scratch counts one `taps` by `taps` block of images and the
-  load-time filter workspace, and `Tiling.pixel_tile` is not used.
+  load-time filter workspace, and `Tiling.pixel_tile` is not used. A scene
+  render over float32 coefficients also counts a float64 copy of its table.
 
 ## Precision
 

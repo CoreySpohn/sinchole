@@ -123,8 +123,8 @@ which is the default.
 
 ## Does admission accept the grid for this profile?
 
-Admission takes the profile as a keyword. It checks everything the raw
-profile checks, with three differences.
+Admission takes the profile as a keyword. It designs the filter for the
+grid and checks everything the raw profile checks, with three differences.
 
 - **Denser sampling.** The oversampling factor $\rho$ must be at most 0.64 on
   every axis, where the raw profile allows 0.76. A grid delivered at the raw
@@ -132,9 +132,11 @@ profile checks, with three differences.
   which is why this page uses a spacing of 0.32.
 - **Smaller grids are enough.** A quadrant needs 13 nodes on each axis for 7
   taps and 17 otherwise; a full grid needs 25 and 33.
-- **Checks are read with the profile.** Independent and mirror checks are
-  compared against prefiltered reads, so a passing admission is evidence for
-  the reader that will be used.
+- **Independent checks are read with the profile.** Checks at positions
+  between the nodes are compared against prefiltered reads, so their residuals
+  are evidence for the reader that will be used. Mirror checks compare the
+  stored samples themselves, as they do for the raw profile, and do not depend
+  on the profile.
 
 ```{code-cell} python
 profile = plan.require()
@@ -149,8 +151,10 @@ tap count, filter half-width in nodes, halo, the design band on each axis in
 cycles per node, the bump shape, and the tone errors. `tone_error_two_axis`
 is the figure the planner compared with the request. The interior figures
 apply to reads far from the table's ends; the larger figures include reads
-near an end, where the filter is one-sided. `sample_gain` is the factor by
-which the read can amplify an error in a single delivered sample.
+near an end, where the filter is one-sided. `sample_gain` is the largest sum
+of the absolute weights that a read puts on the delivered samples along one
+axis: an error of at most $\epsilon$ in every sample can change a read by up
+to `sample_gain` times $\epsilon$ for each axis.
 
 The receipt identity includes the profile, so a grid admitted for 7 taps and
 the same grid admitted for 8 have different identities.
@@ -287,7 +291,8 @@ print(f"largest difference from the summed reads: "
       f"{float(jnp.max(jnp.abs(scene.intensity - summed))):.1e}")
 ```
 
-The render equals the flux-weighted sum of the 40 reads to rounding.
+The render equals the flux-weighted sum of the 40 reads to rounding. Like a
+single read, it sums in float64 whatever the dtype of the samples.
 
 - `render_points(source_xy_lod, flux)` takes positions `[Q, 2]` and fluxes
   `[Q]`. Positions may move by `margin_nodes` node spacings (default 1) from
