@@ -91,9 +91,13 @@ def _fit(taps, beta, scale, band, left, right):
 
     The fit asks D(f) * bump_transform(f) = scale on the band only and imposes
     nothing outside it, which keeps the filter short and its gain small. The
-    stacked system has full column rank (condition number below 1e9 for the
-    supported tap counts), so the least-squares solution is unique and the
-    minimum-norm rule of the solver never has to choose.
+    stacked system has full column rank only near the widest admitted bands
+    (about 0.3 cycles per node and above). On a narrower band it is rank
+    deficient to working precision, and the solver returns the minimum-norm
+    solution among the least-squares ones after discarding singular values
+    below ``rcond`` times the largest. The cutoff is pinned to the binary64
+    epsilon times the larger dimension of the system, so the choice does not
+    depend on a library default.
     """
     offsets = jnp.arange(-left, right + 1)
     frequency = jnp.linspace(0.0, band, _FIT_FREQUENCIES)
@@ -102,7 +106,8 @@ def _fit(taps, beta, scale, band, left, right):
     target = jnp.concatenate(
         [scale / bump_transform(frequency, taps, beta), jnp.zeros(_FIT_FREQUENCIES)]
     )
-    return jnp.linalg.lstsq(system, target, rcond=None)[0]
+    rcond = float(jnp.finfo(jnp.float64).eps) * max(system.shape)
+    return jnp.linalg.lstsq(system, target, rcond=rcond)[0]
 
 
 class _Filters:
@@ -181,9 +186,11 @@ class AxisDesign:
     mirrored: jax.Array | None
 
 
-@lru_cache(maxsize=32)
 def design_axis(taps, filter_half_width, band, size, reflected, cells=None):
     """Design the bump shape and every filter one source axis needs.
+
+    Designs are cached by their arguments; the precision check runs on every
+    call, cached or not.
 
     Args:
         taps: Bump taps per axis.
@@ -203,6 +210,12 @@ def design_axis(taps, filter_half_width, band, size, reflected, cells=None):
         samples and needs no edge treatment.
     """
     _require_precision()
+    return _design_axis(taps, filter_half_width, band, size, reflected, cells)
+
+
+@lru_cache(maxsize=32)
+def _design_axis(taps, filter_half_width, band, size, reflected, cells):
+    """Uncached body of ``design_axis``; arguments are hashable host values."""
     if not 0.0 < band < 0.5:
         raise ValueError("The design band must lie strictly inside (0, 0.5)")
     trials = []

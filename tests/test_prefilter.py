@@ -15,9 +15,15 @@ from reference_reader import (
 )
 
 import sinchole as sc
+from sinchole import prefilter
 from sinchole.domain import coverage
 from sinchole.kernel import bump_stencil
-from sinchole.prefilter import build_coefficients, bump_transform, design_axis
+from sinchole.prefilter import (
+    build_coefficients,
+    bump_transform,
+    design_axis,
+    design_grid,
+)
 
 compiled_read = eqx.filter_jit(lambda reader, q, p: reader.read(q, p))
 BUDGET = sc.MemoryBudget(100_000_000, 10_000_000, 60_000_000, 400_000_000)
@@ -49,7 +55,7 @@ def quadrant(tone_quadrant):
     return tone_quadrant
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="one filter design per tap count, up to 7 s")
 @pytest.mark.parametrize(
     "taps,half_width,tone,beta,filter_l1",
     [
@@ -90,10 +96,15 @@ def test_design_figures_at_reference_band(taps, half_width, tone, beta, filter_l
     )
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="dense tone scan of an assembled design, 5 s")
 @pytest.mark.parametrize(
     "taps,half_width,band,size,reflected",
-    [(7, 12, 0.3, 27, False), (8, 16, 0.32, 18, True), (9, 16, 0.3, 36, False)],
+    [
+        (7, 12, 0.3, 27, False),
+        (8, 16, 0.32, 18, True),
+        (9, 16, 0.3, 36, False),
+        (7, 12, 0.15, 27, False),
+    ],
 )
 def test_assembled_filters_meet_recorded_tone_error(
     taps, half_width, band, size, reflected
@@ -104,7 +115,9 @@ def test_assembled_filters_meet_recorded_tone_error(
     assembled matrices to tones and reads them with an exact rational stencil
     on a denser phase grid that includes switch points, their neighbours and
     every edge cell. The recorded figure must not be exceeded (0.1 percent for
-    rounding) and must not be loose by more than a factor of two.
+    rounding) and must not be loose by more than a factor of two. The band of
+    0.15 is an oversampled lattice, where the fit is rank deficient and the
+    pinned singular-value cutoff selects the filter.
     """
     design = design_axis(taps, half_width, band, size, reflected, None)
     direct = np.asarray(design.direct)
@@ -220,7 +233,7 @@ QUERIES = [
 ]
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="host quadrature oracle per query, 6 s")
 @pytest.mark.parametrize("fixture", ["full", "quadrant"])
 def test_reads_match_independent_oracle(fixture, request):
     """Fails on a wrong flip, axis swap, filter offset, half-width or stencil.
@@ -319,7 +332,7 @@ def test_profiles_do_not_mix(full):
             sc.PrefilteredKernelProfile(taps=taps)
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="admits and builds a table per case, 4 s")
 @pytest.mark.parametrize("quadrant_table", [False, True])
 def test_table_edge_reads_and_halo_refusal(quadrant_table):
     """Fails if an edge read uses unstored nodes or the halo limit moves.
@@ -399,9 +412,12 @@ def test_margin_memory_policy_and_precision(full):
     result = bounded.read(jnp.array([0.1, 0.2]), jnp.int32(0))
     assert not bool(result.accepted) and bool(result.sampling_ok)
     assert int(result.status) == sc.Status.REFUSED
+    # The design is cached by its arguments; the precision check is not.
+    cached = (7, 12, 0.29, 31, False, (12, 14))
+    design_axis(*cached)
     with jax.enable_x64(False):
         with pytest.raises(sc.PrecisionUnavailable):
-            design_axis(7, 12, 0.29, 31, False, None)
+            design_axis(*cached)
         with pytest.raises(sc.PrecisionUnavailable):
             build_coefficients(full["reader"].grid.intensity, ())
 
@@ -465,10 +481,12 @@ def test_batch_checks_and_node_reads(full):
 def test_float32_storage_stays_near_float64(full):
     """Fails if float32 coefficients are filtered in float32 or lose their scale.
 
-    The filter runs in float64 and rounds once to the storage dtype. The read
-    of a float32 delivery then differs from the float64 one by rounding of
-    samples and coefficients only: a few 1e-7 of the signal, measured 2e-7.
-    Filtering in float32 would cost about 1e-5.
+    The filter runs in float64 and rounds once to the storage dtype, so the
+    stored coefficients equal, bit for bit, the float64 build of the same
+    float32 samples rounded to float32. A float32 filter pass moves them by
+    about 4e-6 of the signal. The read of a float32 delivery then differs from
+    the float64 one by rounding of samples and coefficients only: a few 1e-7 of
+    the signal, measured 2e-7.
     """
     data = full["data"]
     single = {
@@ -478,6 +496,11 @@ def test_float32_storage_stays_near_float64(full):
     }
     reader, _ = make_prefiltered(single)
     assert reader.coefficients.dtype == jnp.float32
+    designs = design_grid(
+        reader.profile, reader.grid.products, reader.grid.source, False, data["domain"]
+    )
+    wide = build_coefficients(reader.grid.intensity.astype(jnp.float64), designs)
+    np.testing.assert_array_equal(reader.coefficients, wide.astype(jnp.float32))
     worst = 0.0
     for query in QUERIES[:4]:
         q = jnp.array(query)
@@ -486,3 +509,29 @@ def test_float32_storage_stays_near_float64(full):
         assert rounded.dtype == jnp.float64
         worst = max(worst, float(jnp.max(jnp.abs(rounded - exact))))
     assert worst <= 1e-6 * full["norm"]
+
+
+@pytest.mark.parametrize("fixture", ["full", "quadrant"])
+def test_chunked_build_matches_single_chunk(fixture, request, monkeypatch):
+    """Fails if a detector-row chunk is flipped or joined in the wrong order.
+
+    With reflection each chunk is filtered together with the mirrored rows of
+    the opposite detector edge. A chunk limit of one byte forces one row per
+    chunk on the 6-row detector; the result must equal the single-chunk build
+    exactly, because every pixel sees the same arithmetic.
+    """
+    reader = request.getfixturevalue(fixture)["reader"]
+    grid = reader.grid
+    designs = design_grid(
+        reader.profile,
+        grid.products,
+        grid.source,
+        grid.reflection.kind != "none",
+        reader.domain,
+    )
+    nodes = grid.intensity.shape[1] * grid.intensity.shape[2]
+    assert prefilter.build_chunk_rows(nodes, (6, 5)) == 6
+    monkeypatch.setattr(prefilter, "BUILD_CHUNK_BYTES", 1)
+    assert prefilter.build_chunk_rows(nodes, (6, 5)) == 1
+    chunked = build_coefficients(grid.intensity, designs)
+    np.testing.assert_array_equal(chunked, reader.coefficients)

@@ -4,7 +4,7 @@ import pytest
 from conftest import delivery, tone_truth
 
 import sinchole as sc
-from sinchole.prefilter import design_axis
+from sinchole.prefilter import _design_axis
 
 
 def plan(data, max_tone_error):
@@ -17,7 +17,7 @@ def plan(data, max_tone_error):
     )
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="designs three tap counts on two axes, 9 s")
 def test_plan_picks_fewest_taps_and_admission_reuses_it(tone_full):
     """Fails if the planner skips a cheaper tap count or disagrees with admission.
 
@@ -33,14 +33,14 @@ def test_plan_picks_fewest_taps_and_admission_reuses_it(tone_full):
     assert errors[0] > errors[1] > 3e-5 >= errors[2] == seven.tone_error_two_axis
     # Admission records the same design, taken from the design cache.
     assert seven.kernel_design == tone_full["receipt"].kernel_design
-    hits = design_axis.cache_info().hits
+    hits = _design_axis.cache_info().hits
     eight = plan(data, 4e-6)
-    assert design_axis.cache_info().hits >= hits + 6
+    assert _design_axis.cache_info().hits >= hits + 6
     assert eight.require().taps == 8
     assert dict(eight.kernel_design)["filter_half_width"] == 16
 
 
-@pytest.mark.medium
+@pytest.mark.medium(reason="designs all six tap counts, 6 s")
 def test_plan_refusals():
     """Fails if an unreachable request, a coarse lattice or a tiny table plans.
 
