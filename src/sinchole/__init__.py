@@ -51,6 +51,7 @@ from sinchole.reader import (
     read_batch,
     require_read,
 )
+from sinchole.scene import SceneRenderer
 
 __all__ = [
     "AbstractImageReader",
@@ -83,6 +84,7 @@ __all__ = [
     "Receipt",
     "Reflection",
     "SampledGrid",
+    "SceneRenderer",
     "Status",
     "Tiling",
     "__version__",

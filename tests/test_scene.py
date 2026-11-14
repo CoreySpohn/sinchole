@@ -1,0 +1,185 @@
+"""Extended-scene rendering against brute-force sums of reads."""
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax.test_util import check_grads
+
+import sinchole as sc
+
+render_points = eqx.filter_jit(lambda renderer, q, f: renderer.render_points(q, f))
+render_raster = eqx.filter_jit(
+    lambda renderer, scene, x, y: renderer.render_raster(scene, x, y)
+)
+
+
+def brute(reader, points, flux):
+    reads = sc.read_batch(reader, points, jnp.zeros(points.shape[0], dtype=jnp.int32))
+    assert bool(jnp.all(reads.accepted))
+    return jnp.einsum("q,qrc->rc", flux, reads.intensity)
+
+
+def scene_points():
+    points = jax.random.uniform(jax.random.key(0), (9, 2), minval=-1.8, maxval=1.8)
+    # Sources on and beside both mirror axes use nodes of both signs.
+    points = points.at[0].set(jnp.array([0.0, 0.0])).at[1].set(jnp.array([0.05, -0.02]))
+    flux = jax.random.uniform(jax.random.key(1), (9,), minval=0.5, maxval=2.0)
+    return points, flux
+
+
+@pytest.fixture(scope="module", params=["tone_full", "tone_quadrant"])
+def case(request):
+    return request.getfixturevalue(request.param)
+
+
+@pytest.mark.medium
+def test_points_equal_summed_reads(case):
+    """Fails if the fold drops, double counts or mis-flips a touched node.
+
+    The render regroups the same products the reads sum, so it agrees with the
+    flux-weighted sum of reads to rounding (1e-12 of the scene scale), for a
+    full table and for a mirror-symmetric one with sources straddling its axes.
+    """
+    reader = case["reader"]
+    points, flux = scene_points()
+    renderer = sc.SceneRenderer(reader, 0, points)
+    result = render_points(renderer, points, flux)
+    expected = brute(reader, points, flux)
+    scale = case["norm"] * float(jnp.sum(flux))
+    np.testing.assert_allclose(result.intensity, expected, rtol=0, atol=1e-12 * scale)
+    assert bool(result.accepted) and bool(result.sampling_ok)
+    assert int(result.status) == sc.Status.SAMPLING_ADMITTED
+    assert int(result.reason_bits) == sc.Reason.BOUND_UNKNOWN
+    assert not bool(result.bound_available)
+    assert np.isinf(float(result.abs_error_bound))
+    assert np.isnan(float(result.empirical_max_abs))
+    assert not np.any(np.asarray(result.ledger.evidence))
+
+
+@pytest.mark.medium
+def test_raster_equals_points_and_summed_reads(case):
+    """Fails if the separable raster fold swaps axes or loses a pixel.
+
+    The raster is not square and crosses both mirror axes; one pixel is dark.
+    """
+    reader = case["reader"]
+    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.7, 4)
+    scene = jax.random.uniform(jax.random.key(2), (4, 6), minval=0.1)
+    scene = scene.at[1, 2].set(0.0)
+    grid_x, grid_y = jnp.meshgrid(x, y)
+    centers = jnp.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
+    renderer = sc.SceneRenderer(reader, 0, centers, margin_nodes=0)
+    raster = render_raster(renderer, scene, x, y)
+    points = renderer.render_points(centers, scene.ravel())
+    expected = brute(reader, centers, scene.ravel())
+    scale = case["norm"] * float(jnp.sum(scene))
+    for result in (raster, points):
+        assert bool(result.accepted)
+        np.testing.assert_allclose(
+            result.intensity, expected, rtol=0, atol=1e-12 * scale
+        )
+
+
+def test_refusals_padding_and_margin(tone_quadrant):
+    """Fails if an unreadable source is dropped silently or padding refuses.
+
+    A contributing source outside the domain, off the touched nodes or
+    non-finite refuses the whole image; the same entries with zero flux are
+    padding. One node of margin lets positions move by a node spacing.
+    """
+    reader = tone_quadrant["reader"]
+    points, flux = scene_points()
+    renderer = sc.SceneRenderer(reader, 0, points)
+    tight = sc.SceneRenderer(reader, 0, points, margin_nodes=0)
+    assert tight.nodes.shape[0] < renderer.nodes.shape[0]
+    assert renderer.table.shape == (renderer.nodes.shape[0], 30)
+    assert renderer.table.dtype == reader.coefficients.dtype
+    good = renderer.render_points(points, flux).intensity
+    outside = renderer.render_points(points.at[3, 0].set(5.0), flux)
+    assert not bool(outside.accepted) and bool(jnp.all(jnp.isnan(outside.intensity)))
+    assert int(outside.reason_bits) & sc.Reason.OUTSIDE_DOMAIN
+    assert int(outside.status) == sc.Status.REFUSED
+    broken = renderer.render_points(points.at[3, 1].set(jnp.nan), flux)
+    assert int(broken.reason_bits) & sc.Reason.NONFINITE_QUERY
+    for bad in (5.0, jnp.nan):
+        padded = renderer.render_points(points.at[3, 0].set(bad), flux.at[3].set(0.0))
+        without = renderer.render_points(points, flux.at[3].set(0.0))
+        assert bool(padded.accepted)
+        np.testing.assert_array_equal(padded.intensity, without.intensity)
+    # A shift of one node spacing stays inside the margin; the tight set refuses.
+    shift = jnp.array([0.3, -0.28])
+    moved = renderer.render_points(points * 0.8 + shift, flux)
+    assert bool(moved.accepted)
+    np.testing.assert_allclose(
+        moved.intensity,
+        brute(reader, points * 0.8 + shift, flux),
+        rtol=0,
+        atol=1e-11 * float(jnp.max(good)),
+    )
+    far = tight.render_points(points * 0.8 + 3 * shift, flux)
+    assert not bool(far.accepted)
+    assert int(far.reason_bits) & sc.Reason.INCOMPLETE_STENCIL
+    x, y = jnp.linspace(-0.5, 0.5, 3), jnp.linspace(-0.5, 0.5, 3)
+    scene = jnp.ones((3, 3))
+    assert not bool(tight.render_raster(scene, x + 3.0, y).accepted)
+    bounded = eqx.tree_at(
+        lambda r: r.reader.policy, renderer, sc.ReadPolicy("bounded", jnp.array(1.0))
+    )
+    refused = bounded.render_points(points, flux)
+    assert not bool(refused.accepted) and bool(refused.sampling_ok)
+
+
+def test_construction_refusals(tone_full):
+    """Fails if a renderer is built on unreadable positions or past a budget."""
+    reader, data = tone_full["reader"], tone_full["data"]
+    points, _ = scene_points()
+    with pytest.raises(ValueError, match="finite, permitted and covered"):
+        sc.SceneRenderer(reader, 0, points.at[0, 0].set(9.0))
+    with pytest.raises(ValueError, match="product_index"):
+        sc.SceneRenderer(reader, 1, points)
+    with pytest.raises(ValueError, match="margin_nodes"):
+        sc.SceneRenderer(reader, 0, points, margin_nodes=-1)
+    raw = sc.Interpolator(
+        sc.admit_grid(**data).require(),
+        data["domain"],
+        sc.KernelProfile(),
+        sc.ReadPolicy(),
+        sc.Tiling(),
+        data["memory"],
+    )
+    with pytest.raises(TypeError, match="PrefilteredReader"):
+        sc.SceneRenderer(raw, 0, points)
+    resident = reader.memory_estimate(1)["resident"]
+    lean = eqx.tree_at(
+        lambda r: r.memory,
+        reader,
+        sc.MemoryBudget(resident + 100, 10_000_000, 60_000_000, 400_000_000),
+    )
+    with pytest.raises(sc.MemoryLimit, match="scene table"):
+        sc.SceneRenderer(lean, 0, points)
+
+
+@pytest.mark.medium
+def test_gradients_through_the_render(tone_quadrant):
+    """Fails if flux or position gradients are wrong, or NaN on a refused render.
+
+    Positions sit away from stencil switch points, where the read is smooth;
+    reverse-mode gradients must match central differences. A refused render
+    returns NaN values but finite (zero) gradients, because refused lanes are
+    evaluated at a safe substitute position.
+    """
+    reader = tone_quadrant["reader"]
+    points = jnp.array([[0.07, -0.05], [0.71, 0.52], [-1.13, 0.9]])
+    flux = jnp.array([1.0, 0.6, 1.7])
+    renderer = sc.SceneRenderer(reader, 0, points)
+    weights = jax.random.uniform(jax.random.key(3), (6, 5))
+
+    @eqx.filter_jit
+    def score(positions, amounts):
+        return jnp.sum(weights * renderer.render_points(positions, amounts).intensity)
+
+    check_grads(score, (points, flux), order=1, modes=["rev"], eps=1e-6, rtol=1e-5)
+    gradient = jax.grad(score, argnums=(0, 1))(points.at[0, 0].set(7.0), flux)
+    assert all(bool(jnp.all(jnp.isfinite(g))) for g in gradient)
