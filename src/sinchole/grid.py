@@ -176,6 +176,11 @@ class SampledGrid(eqx.Module):
     ``profile_id`` names the kernel profile the grid was admitted under; its
     sampling margin, coverage and empirical checks hold for that profile only.
     An empty value marks a grid built outside admission.
+
+    ``stored`` names what ``intensity`` holds: ``"samples"``, the admitted node
+    images, or ``"prefiltered_coefficients"``, the coefficient table a
+    PrefilteredReader builds from them and keeps in their place. Readers are
+    constructed only from samples.
     """
 
     intensity: jax.Array
@@ -186,10 +191,13 @@ class SampledGrid(eqx.Module):
     _empirical_max_abs: F64 = eqx.field(default_factory=lambda: jnp.asarray(jnp.nan))
     _has_checks: bool = eqx.field(static=True, default=False)
     profile_id: str = eqx.field(static=True, default="")
+    stored: str = eqx.field(static=True, default="samples")
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
+        if self.stored not in ("samples", "prefiltered_coefficients"):
+            raise ValueError("stored must be 'samples' or 'prefiltered_coefficients'")
         count = self.products.wavelength_nm.size
         check_array(
             self.intensity,

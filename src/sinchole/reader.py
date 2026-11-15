@@ -1,7 +1,9 @@
 """Float64 tiled interpolation and bounded serial query mapping."""
 
+import dataclasses
 import math
 from abc import abstractmethod
+from typing import ClassVar
 
 import equinox as eqx
 import jax
@@ -113,10 +115,10 @@ def estimate_memory(
     """Estimate logical allocations, including all result leaves and padding.
 
     ``resident_bytes`` is the size of the stored samples. ``profile`` None means
-    the raw profile. A prefiltered profile keeps a coefficient table of the same
-    size beside the samples, so its resident estimate is twice the samples; its
-    scratch counts one taps x taps block of images in the storage dtype and in
-    float64, and the load-time build (one float64 detector-row chunk and two
+    the raw profile. A prefiltered reader keeps a coefficient table of the same
+    size in place of the samples, so its resident estimate equals the samples;
+    its scratch counts one taps x taps block of images in the storage dtype and
+    in float64, and the load-time build (one float64 detector-row chunk and two
     transient copies of the coefficients). Detector tiling does not apply to a
     prefiltered read, so ``tiling.pixel_tile`` is ignored for that profile.
 
@@ -139,7 +141,6 @@ def estimate_memory(
     resident = resident_bytes
     if isinstance(profile, PrefilteredKernelProfile):
         taps = profile.taps
-        resident = 2 * resident_bytes
         scratch = 3 * taps * taps * pixels * 8 + 2 * taps * 16 + pixels * 8
         # The sample count is at most resident_bytes / 4 (float32 storage).
         chunk = BUILD_SAMPLE_BYTES * (resident_bytes // 4)
@@ -238,6 +239,8 @@ class AbstractGridReader(AbstractImageReader):
     for every profile: no profile turns a delivered grid into a bounded read.
     """
 
+    # What the bound grid's intensity holds once the reader is built.
+    _stored: ClassVar[str] = "samples"
     grid: eqx.AbstractVar[SampledGrid]
     domain: eqx.AbstractVar[Domain]
     profile: eqx.AbstractVar[AbstractKernelProfile]
@@ -252,6 +255,8 @@ class AbstractGridReader(AbstractImageReader):
         """Return the float64 image and per-axis weight l1 of a prevalidated query."""
 
     def _check_grid(self):
+        if self.grid.stored != self._stored:
+            raise ValueError(f"Reader requires a grid that stores {self._stored}")
         if not self.grid.receipt_id:
             raise ValueError("Reader requires an admission receipt identity")
         if self.grid.reflection.kind not in ("none", "two_axis_pixel_flip_v1"):
@@ -281,7 +286,7 @@ class AbstractGridReader(AbstractImageReader):
         """Return sanitized inputs, per-condition flags and the reason mask."""
         finite = jnp.all(jnp.isfinite(query))
         sanitized = flush_subnormal(jnp.where(jnp.isfinite(query), query, 0.0))
-        available = (product >= 0) & (product < self.grid.intensity.shape[0])
+        available = (product >= 0) & (product < self.products.wavelength_nm.size)
         member = self.domain.contains(sanitized)
         covered = coverage(
             sanitized,
@@ -313,7 +318,7 @@ class AbstractGridReader(AbstractImageReader):
         _check_memory(self.memory, self.memory_estimate(1))
         sanitized, sampling_ok, reason = self._validate(query, product)
         temporary_product = jnp.where(
-            (product >= 0) & (product < self.grid.intensity.shape[0]), product, 0
+            (product >= 0) & (product < self.products.wavelength_nm.size), product, 0
         )
         accepted = sampling_ok & (self.policy.mode == "sampling")
         if self.grid._has_checks:
@@ -424,8 +429,11 @@ class PrefilteredReader(AbstractGridReader):
 
     Construction is the load step: it designs the deapodization filter for the
     grid's declared band in float64, filters the stored samples along both
-    source axes and keeps the coefficients, in the storage dtype, beside the raw
-    samples. A read then sums ``profile.taps`` squared coefficient images.
+    source axes and keeps the coefficients, in the storage dtype, in place of
+    the samples: the reader's ``grid`` carries the coefficient table as its
+    ``intensity`` (``grid.stored`` says so, and ``coefficients`` names the same
+    array), so the reader holds one table, not two. A read then sums
+    ``profile.taps`` squared coefficient images.
 
     ``design`` holds the same ordered (key, value) pairs as the admission
     receipt's ``kernel_design``, evaluated for this reader's domain. They
@@ -441,7 +449,6 @@ class PrefilteredReader(AbstractGridReader):
     tiling: Tiling
     memory: MemoryBudget
     _safe_query: F64
-    coefficients: jax.Array
     design: tuple[tuple[str, int | float], ...] = eqx.field(static=True)
     _beta_xy: F64
     _scale_xy: F64
@@ -454,6 +461,8 @@ class PrefilteredReader(AbstractGridReader):
             raise TypeError("PrefilteredReader needs a PrefilteredKernelProfile")
         if grid.profile_id != profile.identity:
             raise ValueError("Grid was admitted under a different kernel profile")
+        if grid.stored != "samples":
+            raise ValueError("PrefilteredReader builds from samples, not coefficients")
         self.grid, self.domain, self.profile = grid, domain, profile
         self.policy, self.tiling, self.memory = policy, tiling, memory
         self._safe_query, self.errors = _bind_evidence(grid, domain, profile)
@@ -466,18 +475,25 @@ class PrefilteredReader(AbstractGridReader):
             domain,
         )
         self.design = design_record(designs)
-        self.coefficients = build_coefficients(grid.intensity, designs)
+        coefficients = build_coefficients(grid.intensity, designs)
+        self.grid = dataclasses.replace(
+            grid, intensity=coefficients, stored="prefiltered_coefficients"
+        )
         self._beta_xy = jnp.asarray([d.beta for d in designs], dtype=jnp.float64)
         self._scale_xy = jnp.asarray([d.scale for d in designs], dtype=jnp.float64)
         self._gain_xy = jnp.asarray([d.sample_gain for d in designs], dtype=jnp.float64)
+
+    _stored: ClassVar[str] = "prefiltered_coefficients"
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
         self._check_grid()
-        check_array(
-            self.coefficients, self.grid.intensity.shape, (self.grid.intensity.dtype,)
-        )
+
+    @property
+    def coefficients(self):
+        """Coefficient table [product, sy, sx, row, column] in the storage dtype."""
+        return self.grid.intensity
 
     def stencil(self, query):
         """Return signed int64 taps [2, taps] and bump weights of a valid query."""

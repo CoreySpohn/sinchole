@@ -1,5 +1,6 @@
 """Prefiltered profile: filter design, coverage, reads, evidence and refusals."""
 
+import dataclasses
 import math
 
 import equinox as eqx
@@ -43,6 +44,12 @@ def oracle(data, reader, query):
         (design["band_x"], design["band_y"]),
         (design["beta_x"], design["beta_y"]),
     )
+
+
+def admitted_samples(data):
+    """The canonical samples a prefiltered reader of ``data`` was built from."""
+    admission = sc.admit_grid(**data, profile=sc.PrefilteredKernelProfile())
+    return admission.require().intensity
 
 
 @pytest.fixture(scope="module")
@@ -405,7 +412,9 @@ def test_margin_memory_policy_and_precision(full):
         == sc.Reason.MEMORY_LIMIT
     )
     estimate = full["reader"].memory_estimate(1)
-    assert estimate["resident"] == 2 * full["reader"].grid.intensity.nbytes
+    # The coefficients replace the samples: one resident table.
+    assert estimate["resident"] == full["reader"].coefficients.nbytes
+    assert full["reader"].grid.stored == "prefiltered_coefficients"
     bounded = eqx.tree_at(
         lambda r: r.policy, full["reader"], sc.ReadPolicy("bounded", jnp.array(1.0))
     )
@@ -499,7 +508,7 @@ def test_float32_storage_stays_near_float64(full):
     designs = design_grid(
         reader.profile, reader.grid.products, reader.grid.source, False, data["domain"]
     )
-    wide = build_coefficients(reader.grid.intensity.astype(jnp.float64), designs)
+    wide = build_coefficients(admitted_samples(single).astype(jnp.float64), designs)
     np.testing.assert_array_equal(reader.coefficients, wide.astype(jnp.float32))
     worst = 0.0
     for query in QUERIES[:4]:
@@ -521,8 +530,9 @@ def test_chunked_build_matches_single_chunk(fixture, request, monkeypatch):
     to a few units in the last place (the compiler may vectorize the two chunk
     shapes differently), where a flipped or misordered row differs at order one.
     """
-    reader = request.getfixturevalue(fixture)["reader"]
-    grid = reader.grid
+    case = request.getfixturevalue(fixture)
+    reader, grid = case["reader"], case["reader"].grid
+    samples = admitted_samples(case["data"])
     designs = design_grid(
         reader.profile,
         grid.products,
@@ -530,12 +540,37 @@ def test_chunked_build_matches_single_chunk(fixture, request, monkeypatch):
         grid.reflection.kind != "none",
         reader.domain,
     )
-    nodes = grid.intensity.shape[1] * grid.intensity.shape[2]
+    nodes = samples.shape[1] * samples.shape[2]
     assert prefilter.build_chunk_rows(nodes, (6, 5)) == 6
     monkeypatch.setattr(prefilter, "BUILD_CHUNK_BYTES", 1)
     assert prefilter.build_chunk_rows(nodes, (6, 5)) == 1
-    chunked = build_coefficients(grid.intensity, designs)
+    chunked = build_coefficients(samples, designs)
     scale = float(jnp.max(jnp.abs(reader.coefficients)))
     np.testing.assert_allclose(
         chunked, reader.coefficients, rtol=0, atol=16 * np.finfo(float).eps * scale
     )
+
+
+def test_coefficient_grid_is_not_read_as_samples(full):
+    """Fails if a reader accepts a grid that already holds coefficients.
+
+    A prefiltered reader keeps its coefficients in place of the samples, so its
+    grid must not be filtered a second time or read raw as if it were samples.
+    """
+    grid, data = full["reader"].grid, full["data"]
+    assert grid.stored == "prefiltered_coefficients"
+    profile = sc.PrefilteredKernelProfile()
+    with pytest.raises(ValueError, match="samples"):
+        sc.PrefilteredReader(
+            grid, data["domain"], profile, sc.ReadPolicy(), sc.Tiling(), data["memory"]
+        )
+    raw = dataclasses.replace(grid, profile_id="")
+    with pytest.raises(ValueError, match="samples"):
+        sc.Interpolator(
+            raw,
+            data["domain"],
+            sc.KernelProfile(),
+            sc.ReadPolicy(),
+            sc.Tiling(),
+            data["memory"],
+        )
