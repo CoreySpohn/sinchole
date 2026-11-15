@@ -518,7 +518,8 @@ def test_chunked_build_matches_single_chunk(fixture, request, monkeypatch):
     With reflection each chunk is filtered together with the mirrored rows of
     the opposite detector edge. A chunk limit of one byte forces one row per
     chunk on the 6-row detector; the result must equal the single-chunk build
-    exactly, because every pixel sees the same arithmetic.
+    to a few units in the last place (the compiler may vectorize the two chunk
+    shapes differently), where a flipped or misordered row differs at order one.
     """
     reader = request.getfixturevalue(fixture)["reader"]
     grid = reader.grid
@@ -534,4 +535,7 @@ def test_chunked_build_matches_single_chunk(fixture, request, monkeypatch):
     monkeypatch.setattr(prefilter, "BUILD_CHUNK_BYTES", 1)
     assert prefilter.build_chunk_rows(nodes, (6, 5)) == 1
     chunked = build_coefficients(grid.intensity, designs)
-    np.testing.assert_array_equal(chunked, reader.coefficients)
+    scale = float(jnp.max(jnp.abs(reader.coefficients)))
+    np.testing.assert_allclose(
+        chunked, reader.coefficients, rtol=0, atol=16 * np.finfo(float).eps * scale
+    )

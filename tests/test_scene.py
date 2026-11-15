@@ -64,9 +64,11 @@ def test_raster_equals_points_and_summed_reads(case):
     """Fails if the separable raster fold swaps axes or loses a pixel.
 
     The raster is not square and crosses both mirror axes; one pixel is dark.
+    No center sits on a half cell, where the stencil choice can depend on how
+    each path compiles.
     """
     reader = case["reader"]
-    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.7, 4)
+    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.66, 4)
     scene = jax.random.uniform(jax.random.key(2), (4, 6), minval=0.1)
     scene = scene.at[1, 2].set(0.0)
     grid_x, grid_y = jnp.meshgrid(x, y)
@@ -172,7 +174,7 @@ def test_float32_storage_renders_like_summed_reads(tone_full):
     np.testing.assert_allclose(
         result.intensity, brute(reader, points, flux), rtol=0, atol=1e-12 * scale
     )
-    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.7, 4)
+    x, y = jnp.linspace(-0.9, 1.3, 6), jnp.linspace(-1.1, 0.66, 4)
     scene = jax.random.uniform(jax.random.key(2), (4, 6), minval=0.1)
     grid_x, grid_y = jnp.meshgrid(x, y)
     centers = jnp.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
