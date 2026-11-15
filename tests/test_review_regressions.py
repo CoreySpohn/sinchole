@@ -187,7 +187,7 @@ def test_provenance_retained_and_hashed(full_delivery):
 
 
 def test_axis_exact_separate_from_relative(quadrant_delivery):
-    """Fails if exact identity and relative residuals merge, or off-frame nodes lose evidence."""
+    """Fails if exact and relative evidence merge or off-frame nodes lose it."""
     result = sc.admit_grid(**quadrant_delivery)
     assert result.admitted
     exact = np.asarray(result.receipt.axis_exact)
