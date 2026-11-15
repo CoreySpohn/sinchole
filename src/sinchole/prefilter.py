@@ -14,7 +14,7 @@ registration tau returns R(tau, f) times the tone, with
     R(tau, f) = sum_k w(tau - k) D_k(f) exp(2 pi i f (k - tau)),
 
 where w is the bump over its scale and D_k is the transfer function of the
-filter that built coefficient node k. The tone error max |R - 1| over the
+filter that built coefficient node k. The tone error ``max |R - 1|`` over the
 admitted band and over every covered read is the design figure recorded with
 an admission. It is a property of the kernel under the declared band limit,
 not an error bound on a delivered image.

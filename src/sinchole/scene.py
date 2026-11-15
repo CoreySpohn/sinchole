@@ -273,7 +273,11 @@ class SceneRenderer(eqx.Module):
         hold each center's tap weights, the node amplitudes are W_y^T S W_x.
 
         Any nonzero pixel that is non-finite, outside the domain, not covered
-        or outside the touched nodes refuses the whole image.
+        or outside the touched nodes refuses the whole image. A center within
+        rounding of a cell's half point may take the neighboring stencil here
+        and not in a point read, depending on how the backend compiles each
+        path; the image then differs by the bump's edge value, the size of a
+        stencil switch.
         """
         _require_precision()
         scene, x, y = jnp.asarray(scene), jnp.asarray(x_lod), jnp.asarray(y_lod)
