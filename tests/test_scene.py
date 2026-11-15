@@ -9,6 +9,7 @@ from conftest import make_prefiltered
 from jax.test_util import check_grads
 
 import sinchole as sc
+from sinchole import scene as scene_module
 
 render_points = eqx.filter_jit(lambda renderer, q, f: renderer.render_points(q, f))
 render_raster = eqx.filter_jit(
@@ -98,7 +99,11 @@ def test_refusals_padding_and_margin(tone_quadrant):
     renderer = sc.SceneRenderer(reader, 0, points)
     tight = sc.SceneRenderer(reader, 0, points, margin_nodes=0)
     assert tight.nodes.shape[0] < renderer.nodes.shape[0]
-    assert renderer.table.shape == (renderer.nodes.shape[0], 30)
+    # A signed node and its mirrors share one stored row.
+    signed = np.asarray(renderer.nodes) + np.array(renderer._corner_xy[::-1])
+    stored = np.unique(np.abs(signed), axis=0).shape[0]
+    assert stored < renderer.nodes.shape[0]
+    assert renderer.table.shape == (stored, 30)
     assert renderer.table.dtype == reader.coefficients.dtype
     good = renderer.render_points(points, flux).intensity
     # (3.0, y) is covered by the table but outside the 2.0 box: one reason only.
@@ -241,3 +246,33 @@ def test_gradients_through_the_render(tone_quadrant):
     check_grads(score, (points, flux), order=1, modes=["rev"], eps=1e-6, rtol=1e-5)
     gradient = jax.grad(score, argnums=(0, 1))(points.at[0, 0].set(7.0), flux)
     assert all(bool(jnp.all(jnp.isfinite(g))) for g in gradient)
+
+
+@pytest.mark.medium(reason="admits a float32 quadrant and renders it twice, 5 s")
+def test_float32_table_accumulation(tone_quadrant, monkeypatch):
+    """Fails if a float32 table is contracted in the wrong precision or block order.
+
+    With binary64 accumulation the render equals the summed reads, which widen
+    each coefficient exactly, to binary64 rounding; seven-column blocks and a
+    two-column tail cover the 30-pixel detector. Accumulating in float32 departs
+    from them by float32 rounding of the amplitudes and the sums only.
+    """
+    data = tone_quadrant["data"]
+    narrow = {**data, "intensity_nodes": data["intensity_nodes"].astype(jnp.float32)}
+    reader, _ = make_prefiltered(narrow)
+    monkeypatch.setattr(scene_module, "CONTRACT_COLUMNS", 7)
+    points, flux = scene_points()
+    expected = brute(reader, points, flux)
+    scale = tone_quadrant["norm"] * float(jnp.sum(flux))
+    wide = sc.SceneRenderer(reader, 0, points)
+    assert wide.table.dtype == jnp.float32
+    result = wide.render_points(points, flux)
+    assert bool(result.accepted)
+    np.testing.assert_allclose(result.intensity, expected, rtol=0, atol=1e-12 * scale)
+    storage = sc.SceneRenderer(reader, 0, points, accumulate="storage")
+    result = storage.render_points(points, flux)
+    assert bool(result.accepted) and result.intensity.dtype == jnp.float64
+    error = float(jnp.max(jnp.abs(result.intensity - expected))) / scale
+    assert error <= 1e-6
+    with pytest.raises(ValueError, match="accumulate"):
+        sc.SceneRenderer(reader, 0, points, accumulate="float32")

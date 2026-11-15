@@ -3,12 +3,17 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from sinchole._types import F64, I32, check_array, check_static
 from sinchole.domain import coverage
 from sinchole.evidence import BoundKind, MemoryLimit, Reason, Status
 from sinchole.kernel import flush_subnormal
 from sinchole.reader import ImageRead, PrefilteredReader, _require_precision
+
+# Detector columns widened to binary64 at a time when a narrower table is
+# contracted with binary64 accumulation; the whole table is never widened.
+CONTRACT_COLUMNS = 1024
 
 
 class SceneRenderer(eqx.Module):
@@ -22,9 +27,21 @@ class SceneRenderer(eqx.Module):
     floating-point rounding, at the cost of one pass over the touched nodes.
 
     The touched nodes are fixed at construction, so every shape is static under
-    jit. ``table`` holds their coefficient images [nodes, pixels] in the storage
-    dtype with mirror flips already applied, and ``lookup`` maps a signed node
-    to its row (the node count marks an absent node).
+    jit. ``nodes`` lists them as signed lattice nodes relative to the touched
+    rectangle. ``table`` holds the coefficient images [rows, pixels] of the
+    stored nodes they map to, in the storage dtype and unflipped, and
+    ``lookup`` maps a signed node to its row (the row count marks an absent
+    node). On a mirror-symmetric grid a signed node and its mirrors share one
+    stored row, so the table holds a quarter of the touched nodes: amplitudes
+    fold per sign quadrant, one product contracts the four quadrants with the
+    table, and the four partial images are flipped and added.
+
+    ``accumulate`` sets the contraction arithmetic. ``"float64"`` accumulates
+    in binary64 whatever the storage dtype, as a single read does; a narrower
+    table is widened a block of detector columns at a time. ``"storage"``
+    rounds the amplitudes to the storage dtype and accumulates in it, about
+    twice as fast for a float32 table at the cost of float32 accumulation
+    (relative rounding of order 1e-7 times the square root of the node count).
 
     Rendering refuses the whole image when any contributing source cannot be
     read. A source contributes when its flux, or its raster value, is nonzero;
@@ -37,9 +54,18 @@ class SceneRenderer(eqx.Module):
     nodes: I32
     product_index: int = eqx.field(static=True)
     margin_nodes: int = eqx.field(static=True)
+    accumulate: str = eqx.field(static=True)
     _corner_xy: tuple[int, int] = eqx.field(static=True)
 
-    def __init__(self, reader, product_index, source_xy_lod, *, margin_nodes=1):
+    def __init__(
+        self,
+        reader,
+        product_index,
+        source_xy_lod,
+        *,
+        margin_nodes=1,
+        accumulate="float64",
+    ):
         """Gather the coefficient images that reads near the given positions touch.
 
         Args:
@@ -51,6 +77,8 @@ class SceneRenderer(eqx.Module):
             margin_nodes: Lattice nodes added around the touched set in every
                 direction, so positions may move by that many node spacings (in
                 a fit, for example) before a render refuses.
+            accumulate: ``"float64"`` (binary64 accumulation) or ``"storage"``
+                (accumulation in the table's storage dtype).
         """
         _require_precision()
         if not isinstance(reader, PrefilteredReader):
@@ -60,6 +88,9 @@ class SceneRenderer(eqx.Module):
             raise ValueError("product_index must be an available Python int")
         if type(margin_nodes) is not int or margin_nodes < 0:
             raise ValueError("margin_nodes must be a nonnegative integer")
+        if accumulate not in ("float64", "storage"):
+            raise ValueError("accumulate must be 'float64' or 'storage'")
+        self.accumulate = accumulate
         positions = jnp.asarray(source_xy_lod)
         if positions.ndim != 2 or positions.shape[0] == 0:
             raise ValueError("Scene positions require a nonempty [source, 2] array")
@@ -99,13 +130,16 @@ class SceneRenderer(eqx.Module):
                         | padded[shift_y : shift_y + span_y, shift_x : shift_x + span_x]
                     )
         self.nodes = jnp.argwhere(touched).astype(jnp.int32)
-        rows = self.nodes.shape[0]
+        self._corner_xy = (low[0], low[1])
+        # Signed nodes and their mirrors share one stored row.
+        signed = np.asarray(self.nodes) + np.array([low[1], low[0]])
+        stored, inverse = np.unique(np.abs(signed), axis=0, return_inverse=True)
+        rows = stored.shape[0]
         self.lookup = (
             jnp.full((span_y, span_x), rows, dtype=jnp.int32)
             .at[self.nodes[:, 0], self.nodes[:, 1]]
-            .set(jnp.arange(rows, dtype=jnp.int32))
+            .set(jnp.asarray(inverse.reshape(-1), dtype=jnp.int32))
         )
-        self._corner_xy = (low[0], low[1])
         coefficients = reader.coefficients
         pixels = coefficients.shape[3] * coefficients.shape[4]
         estimate = reader.memory_estimate(1)
@@ -117,29 +151,39 @@ class SceneRenderer(eqx.Module):
             raise MemoryLimit(
                 f"scene table of {table_bytes} bytes exceeds the resident budget"
             )
-        node_y = self.nodes[:, 0] + low[1]
-        node_x = self.nodes[:, 1] + low[0]
-        images = coefficients[product_index][jnp.abs(node_y), jnp.abs(node_x)]
-        if reflected:
-            images = jnp.where((node_x < 0)[:, None, None], images[..., ::-1], images)
-            images = jnp.where(
-                (node_y < 0)[:, None, None], images[..., ::-1, :], images
-            )
-        self.table = images.reshape(rows, pixels)
+        self.table = coefficients[product_index][stored[:, 0], stored[:, 1]].reshape(
+            rows, pixels
+        )
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
-        rows = self.nodes.shape[0]
-        check_array(self.nodes, (rows, 2), (jnp.int32,))
+        count = self.nodes.shape[0]
+        check_array(self.nodes, (count, 2), (jnp.int32,))
         check_array(self.lookup, self.lookup.shape, (jnp.int32,))
-        if self.table.ndim != 2 or self.table.shape[0] != rows:
-            raise ValueError("Scene table requires one row per touched node")
+        if self.table.ndim != 2 or not 0 < self.table.shape[0] <= count:
+            raise ValueError("Scene table requires one row per stored touched node")
+        if self.accumulate not in ("float64", "storage"):
+            raise ValueError("accumulate must be 'float64' or 'storage'")
+
+    @property
+    def _groups(self):
+        # One amplitude row per sign quadrant on a mirror-symmetric grid.
+        return 4 if self.reader.grid.reflection.kind != "none" else 1
+
+    def _quadrant(self, node_x, node_y):
+        """Sign quadrant of signed nodes: bit 0 for x < 0, bit 1 for y < 0."""
+        if self._groups == 1:
+            return jnp.zeros(jnp.broadcast_shapes(node_x.shape, node_y.shape), int)
+        return (node_x < 0).astype(int) + 2 * (node_y < 0).astype(int)
 
     def _scratch(self, working_bytes):
-        # A table stored below binary64 is widened for the contraction.
-        if self.table.dtype != jnp.float64:
-            working_bytes += self.table.size * 8
+        rows, pixels = self.table.shape
+        # Partial images per quadrant, then the image.
+        working_bytes += (self._groups + 1) * pixels * 8
+        # A narrower table is widened one block of detector columns at a time.
+        if self.table.dtype != jnp.float64 and self.accumulate == "float64":
+            working_bytes += rows * min(CONTRACT_COLUMNS, pixels) * 8
         limit = self.reader.memory.max_scratch_bytes
         if working_bytes > limit:
             raise MemoryLimit(f"scene scratch {working_bytes} bytes exceeds budget")
@@ -160,18 +204,53 @@ class SceneRenderer(eqx.Module):
         )(clean)
         return clean, finite, covered
 
+    def _contract(self, amplitudes):
+        """Float64 partial images [groups, pixels] of amplitudes [groups, rows]."""
+        table = self.table
+        # Full precision keeps accelerator backends from a reduced-precision product.
+        highest = jax.lax.Precision.HIGHEST
+        if table.dtype == jnp.float64 or self.accumulate == "storage":
+            product = jnp.matmul(
+                amplitudes.astype(table.dtype), table, precision=highest
+            )
+            return product.astype(jnp.float64)
+        pixels = table.shape[1]
+        width = min(CONTRACT_COLUMNS, pixels)
+        blocks = pixels // width
+
+        def block(index, partial):
+            columns = jax.lax.dynamic_slice_in_dim(table, index * width, width, 1)
+            value = jnp.matmul(
+                amplitudes, columns.astype(jnp.float64), precision=highest
+            )
+            return jax.lax.dynamic_update_slice_in_dim(partial, value, index * width, 1)
+
+        partial = jax.lax.fori_loop(
+            0, blocks, block, jnp.zeros((amplitudes.shape[0], pixels))
+        )
+        if blocks * width < pixels:
+            tail = table[:, blocks * width :].astype(jnp.float64)
+            partial = partial.at[:, blocks * width :].set(
+                jnp.matmul(amplitudes, tail, precision=highest)
+            )
+        return partial
+
     def _finish(self, amplitudes, accepted, sampling_ok, failures):
         """Contract node amplitudes with the table and attach read diagnostics."""
         reader = self.reader
-        # The contraction accumulates in binary64 whatever the storage dtype, as a
-        # single read does. Full precision keeps accelerator backends from a
-        # reduced-precision product.
-        image = jnp.matmul(
-            amplitudes,
-            self.table.astype(jnp.float64),
-            precision=jax.lax.Precision.HIGHEST,
+        partial = self._contract(amplitudes).reshape(
+            amplitudes.shape[0], *reader.products.pixels.shape_yx
         )
-        image = image.reshape(reader.products.pixels.shape_yx)
+        image = partial[0]
+        if self._groups == 4:
+            # A node with x < 0 reads its mirror's image flipped across columns,
+            # one with y < 0 flipped across rows.
+            image = (
+                image
+                + partial[1][:, ::-1]
+                + partial[2][::-1, :]
+                + partial[3][::-1, ::-1]
+            )
         reason = jnp.asarray(Reason.BOUND_UNKNOWN, dtype=jnp.uint32)
         for failed, bit in failures:
             reason = reason | jnp.where(failed, jnp.uint32(bit), jnp.uint32(0))
@@ -200,8 +279,8 @@ class SceneRenderer(eqx.Module):
 
         The image is the sum over sources of flux times that source's read, in
         delivered units per unit flux. Node amplitudes are folded and contracted
-        with the coefficient images in binary64, whatever the storage dtype, so
-        the image equals the summed reads to binary64 rounding. The error bound
+        with the coefficient images; with ``accumulate="float64"`` the image
+        equals the summed reads to binary64 rounding. The error bound
         is unknown, as for a single read, and a point-read empirical check does
         not transfer, so ``empirical_max_abs``
         is NaN.
@@ -219,8 +298,9 @@ class SceneRenderer(eqx.Module):
         check_array(queries, (count, 2), (jnp.float64,))
         check_array(flux, (count,), (jnp.float64,))
         reader, taps = self.reader, self.reader.profile.taps
-        rows = self.nodes.shape[0]
-        self._scratch(count * taps * taps * 32 + rows * 16 + self.table.shape[1] * 16)
+        rows = self.table.shape[0]
+        groups = self._groups
+        self._scratch(count * taps * taps * 40 + groups * (rows + 1) * 8)
         finite = jnp.all(jnp.isfinite(queries), axis=1) & jnp.isfinite(flux)
         clean = flush_subnormal(jnp.where(jnp.isfinite(queries), queries, 0.0))
         member = jax.vmap(reader.domain.contains)(clean)
@@ -241,6 +321,7 @@ class SceneRenderer(eqx.Module):
             jnp.clip(index_y, 0, span_y - 1), jnp.clip(index_x, 0, span_x - 1)
         ]
         row = jnp.where(inside, row, rows)
+        quadrant = self._quadrant(node[:, 0, None, :], node[:, 1, :, None])
         stored = jnp.all(row < rows, axis=(1, 2))
         contributing = flux != 0
         usable = readable & stored
@@ -248,9 +329,13 @@ class SceneRenderer(eqx.Module):
         accepted = sampling_ok & (reader.policy.mode == "sampling")
         amount = jnp.where(usable & contributing, flux, 0.0)
         spread = amount[:, None, None] * weight[:, 1, :, None] * weight[:, 0, None, :]
-        amplitudes = jnp.zeros(rows + 1).at[row.reshape(-1)].add(spread.reshape(-1))
+        amplitudes = (
+            jnp.zeros((groups, rows + 1))
+            .at[quadrant.reshape(-1), row.reshape(-1)]
+            .add(spread.reshape(-1))
+        )
         return self._finish(
-            amplitudes[:rows],
+            amplitudes[:, :rows],
             accepted,
             sampling_ok,
             (
@@ -287,13 +372,13 @@ class SceneRenderer(eqx.Module):
         check_array(scene, (height, width), (jnp.float64,))
         check_array(x, (width,), (jnp.float64,))
         check_array(y, (height,), (jnp.float64,))
-        reader, rows = self.reader, self.nodes.shape[0]
+        reader, rows = self.reader, self.table.shape[0]
         span_y, span_x = self.lookup.shape
         self._scratch(
             16 * height * width
             + 16 * (height * (span_y + 1) + width * (span_x + 1))
             + 16 * (span_y + 1) * (span_x + 1)
-            + self.table.shape[1] * 16
+            + 8 * self._groups * rows
         )
         clean_x, finite_x, covered_x = self._axis_ok(x, 0)
         clean_y, finite_y, covered_y = self._axis_ok(y, 1)
@@ -334,7 +419,15 @@ class SceneRenderer(eqx.Module):
         stored = ~jnp.any((mass > 0) & ~present)
         sampling_ok = jnp.all(usable | ~lit) & stored
         accepted = sampling_ok & (reader.policy.mode == "sampling")
-        amplitudes = folded[self.nodes[:, 0], self.nodes[:, 1]]
+        index_y, index_x = self.nodes[:, 0], self.nodes[:, 1]
+        quadrant = self._quadrant(
+            index_x + self._corner_xy[0], index_y + self._corner_xy[1]
+        )
+        amplitudes = (
+            jnp.zeros((self._groups, rows))
+            .at[quadrant, self.lookup[index_y, index_x]]
+            .add(folded[index_y, index_x])
+        )
         return self._finish(
             amplitudes,
             accepted,
