@@ -263,8 +263,9 @@ both reasons are reported.
   where the stencil shifts by one node (about $10^{-6}$ for 7 taps and
   $10^{-7}$ for 8). The step is inside the recorded tone error. The read is
   differentiable in position between those points.
-- **Twice the resident memory.** The coefficient images are held beside the
-  raw samples, in the same dtype.
+- **The samples are not kept.** The reader holds the coefficient images in
+  place of the raw samples, in the same dtype, so its `grid.intensity` is the
+  coefficient table. Keep the delivery if the samples are needed again.
 - **Coefficient rounding.** The filter runs in float64 and the coefficients
   are stored in the dtype of the samples. For float32 samples that adds a
   rounding of order $10^{-7}$ of the local intensity scale, which the recorded
@@ -292,7 +293,9 @@ print(f"largest difference from the summed reads: "
 ```
 
 The render equals the flux-weighted sum of the 40 reads to rounding. Like a
-single read, it sums in float64 whatever the dtype of the samples.
+single read, it sums in float64 whatever the dtype of the samples, unless it
+is built with `accumulate="storage"`, which contracts a float32 table in
+float32 at about twice the speed.
 
 - `render_points(source_xy_lod, flux)` takes positions `[Q, 2]` and fluxes
   `[Q]`. Positions may move by `margin_nodes` node spacings (default 1) from

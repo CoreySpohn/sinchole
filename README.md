@@ -152,12 +152,13 @@ relative tolerance is `1e-6`; `Reflection.tolerance` may be stricter, but must
 satisfy `0 < tolerance <= 1e-6`. A larger tolerance refuses with
 `SYMMETRY_UNSUPPORTED` before comparison. Caller-provided
 `check_passed` flags have no authority. Local peaks include pixel centers
-within radius 1 in reference angular units. An exactly invariant stored-axis
-image passes even if that source's peak region lies outside the detector;
-a nonzero discrepancy without a positive local reference refuses. The host
-receipt records `axis_exact` independently and uses NaN in `axis_relative`
-where no positive local reference exists. An axis image passes if exactly
-invariant OR if its positive-reference relative residual is within tolerance.
+within radius 1 in reference angular units. A stored-axis image whose source
+lies farther than that from every pixel center (a halo node beyond the
+detector) is measured against its own maximum instead, which is below its
+off-frame peak and so stricter. A nonzero discrepancy without a positive
+reference refuses. The host receipt records `axis_exact` independently and
+uses NaN in `axis_relative` where no positive reference exists. An axis image
+passes if exactly invariant OR if its relative residual is within tolerance.
 Full grids
 require reflection kind `none` and no mirror checks.
 
@@ -205,14 +206,19 @@ absolute weight sum a read puts on the samples of one axis). Those figures are
 sampled maxima for the kernel, not error bounds: reads keep an unknown bound
 and bounded-policy reads still refuse. The bump is cut at a small nonzero
 value, so a read steps by about `1/I0(beta)` of the local scale (about 1e-6
-for 7 taps) where its stencil moves by one node. Resident memory doubles
-because coefficients are held beside the samples.
+for 7 taps) where its stencil moves by one node. The reader keeps the
+coefficients in place of the samples (its `grid.stored` is
+`"prefiltered_coefficients"`), so resident memory stays at one table.
 
-`SceneRenderer(reader, product_index, source_xy_lod, margin_nodes=1)` renders
-many sources as one contraction over the coefficient images they touch, with
-`render_points(source_xy_lod, flux)` and `render_raster(scene, x_lod, y_lod)`.
-The contraction is binary64 for float32 and float64 storage, so the result
-equals the flux-weighted sum of single reads to binary64 rounding.
+`SceneRenderer(reader, product_index, source_xy_lod, margin_nodes=1,
+accumulate="float64")` renders many sources as one contraction over the
+coefficient images they touch, with `render_points(source_xy_lod, flux)` and
+`render_raster(scene, x_lod, y_lod)`. On a mirror-symmetric grid it holds one
+quarter of the touched images and flips four partial images. The default
+contraction is binary64 for float32 and float64 storage, so the result equals
+the flux-weighted sum of single reads to binary64 rounding;
+`accumulate="storage"` contracts a float32 table in float32, about twice as
+fast.
 
 ## License
 

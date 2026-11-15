@@ -148,8 +148,11 @@ direct pixel value among pixel centers within radius 1 $\lambda_0/D$ of the
 source). `Reflection.tolerance` may be stricter, $0<\text{tolerance}\le10^{-6}$.
 A looser tolerance refuses with `SYMMETRY_UNSUPPORTED` before any comparison.
 An axis image passes if it is exactly invariant, or if its relative residual
-against a positive local reference is within tolerance, and a nonzero discrepancy
-without a positive local reference refuses. The receipt records
+against a positive reference is within tolerance, and a nonzero discrepancy
+without a positive reference refuses. The reference of an axis image is its
+local peak, or its own maximum when its source lies more than 1 $\lambda_0/D$
+from every pixel center (a halo node beyond the detector); that maximum is
+below the off-frame peak, so the test is stricter. The receipt records
 `axis_exact` separately and stores NaN in `axis_relative` where no positive
 reference exists. Full grids require reflection kind `none` and no mirror
 checks.
@@ -219,22 +222,32 @@ the raw profile are these.
   compare stored samples, as for the raw profile, and do not use the profile.
 - **Readers.** `PrefilteredReader` requires a grid admitted with the same
   profile, and `Interpolator` requires one admitted with the raw profile.
+  Both require a grid that stores samples. A `PrefilteredReader` keeps its
+  coefficients in place of the samples: its `grid.intensity` is the
+  coefficient table and its `grid.stored` is `"prefiltered_coefficients"`.
 - **Planning.** `plan_prefilter(*, declared_lattice, products, reflection,
   domain, max_tone_error)` returns the fewest taps whose
   `tone_error_two_axis` is at or below the request and refuses with
   `TOLERANCE_EXCEEDED` when 10 taps are not enough.
 - **Scenes.** `SceneRenderer(reader, product_index, source_xy_lod,
-  margin_nodes=1)` renders `render_points(source_xy_lod, flux)` and
-  `render_raster(scene, x_lod, y_lod)` as one contraction over a node set
-  fixed at construction. Node amplitudes and the contraction with the
-  coefficient images are binary64 for float32 and float64 storage alike, so
-  the result equals the flux-weighted sum of the single reads to binary64
-  rounding, and the whole image is refused when any source
-  with nonzero flux cannot be read or lies outside the node set.
-- **Memory.** The resident estimate is twice the samples (samples and
-  coefficients). Scratch counts one `taps` by `taps` block of images and the
-  load-time filter workspace, and `Tiling.pixel_tile` is not used. A scene
-  render over float32 coefficients also counts a float64 copy of its table.
+  margin_nodes=1, accumulate="float64")` renders
+  `render_points(source_xy_lod, flux)` and `render_raster(scene, x_lod,
+  y_lod)` as one contraction over a node set fixed at construction. On a
+  mirror-symmetric grid the table holds one image per stored node, a quarter
+  of the touched signed nodes; amplitudes fold per sign quadrant and the four
+  partial images are flipped and added. With `accumulate="float64"` node
+  amplitudes and the contraction are binary64 for float32 and float64
+  storage alike (a float32 table is widened 1,024 detector columns at a
+  time), so the result equals the flux-weighted sum of the single reads to
+  binary64 rounding. With `accumulate="storage"` amplitudes are rounded to
+  the storage dtype and the contraction accumulates in it. The whole image is
+  refused when any source with nonzero flux cannot be read or lies outside
+  the node set.
+- **Memory.** The resident estimate is one table, the coefficients, which
+  replace the samples. Scratch counts one `taps` by `taps` block of images and
+  the load-time filter workspace, and `Tiling.pixel_tile` is not used. A scene
+  renderer adds its table of stored touched images; a binary64 render over
+  float32 coefficients counts one widened block of detector columns.
 
 ## Precision
 
