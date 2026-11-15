@@ -187,22 +187,46 @@ def test_provenance_retained_and_hashed(full_delivery):
 
 
 def test_axis_exact_separate_from_relative(quadrant_delivery):
-    """Fails if missing positive references become defined relative evidence."""
+    """Fails if exact identity and relative residuals merge, or off-frame nodes lose evidence."""
     result = sc.admit_grid(**quadrant_delivery)
     assert result.admitted
     exact = np.asarray(result.receipt.axis_exact)
     relative = np.asarray(result.receipt.axis_relative)
     assert exact.dtype == np.bool_ and exact.shape == relative.shape
-    assert np.any(np.isnan(relative))
-    assert np.all(exact[np.isnan(relative)])
-    # The far y-axis image has no positive local reference, yet is invariant.
-    nodes = quadrant_delivery["intensity_nodes"].at[0, 20 * 21, 0, 0].add(0.01)
+    # Far axis images have no pixel within 1 lambda/D of their source; their
+    # residual is relative to the image maximum instead of undefined.
+    assert np.all(np.isfinite(relative))
+    far = 20 * 21
+    nodes = quadrant_delivery["intensity_nodes"].at[0, far, 0, 0].add(0.01)
     bad = sc.admit_grid(**{**quadrant_delivery, "intensity_nodes": nodes})
     assert not bad.admitted and bad.reason_bits & sc.Reason.SYMMETRY_CHECK_FAILED
     assert any(
-        not e and math.isnan(r)
+        not e and r > 1e-6
         for e, r in zip(bad.receipt.axis_exact, bad.receipt.axis_relative, strict=True)
     )
+    # A zero image has no positive denominator: only exact identity passes it.
+    nodes = quadrant_delivery["intensity_nodes"].at[0, far].set(0.0)
+    blank = sc.admit_grid(**{**quadrant_delivery, "intensity_nodes": nodes})
+    assert blank.admitted
+    assert any(
+        e and math.isnan(r)
+        for e, r in zip(
+            blank.receipt.axis_exact, blank.receipt.axis_relative, strict=True
+        )
+    )
+
+
+def test_off_frame_axis_node_admitted_within_tolerance(quadrant_delivery):
+    """Fails if an off-frame axis image symmetric to rounding is refused."""
+    far = 20 * 21
+    image = quadrant_delivery["intensity_nodes"][0, far]
+    scale = float(jnp.max(image))
+    assert scale > 0
+    # An asymmetry far below the tolerance, which bit identity alone refuses.
+    nudged = image.at[0, 0].add(1e-9 * scale)
+    nodes = quadrant_delivery["intensity_nodes"].at[0, far].set(nudged)
+    result = sc.admit_grid(**{**quadrant_delivery, "intensity_nodes": nodes})
+    assert result.admitted
 
 
 floor_modes = (

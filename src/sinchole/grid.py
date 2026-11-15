@@ -143,7 +143,11 @@ class Reflection(eqx.Module):
 
     Reflection requires 0 < tolerance <= 1e-6 of the local peak.
     Axis evidence records exact native-value identity separately from relative
-    residuals. Without a positive local peak, only exact identity passes.
+    residuals. An axis image whose source lies more than 1 lambda/D from every
+    pixel center (a halo node beyond the detector frame) has no local peak, so
+    its residual is relative to the image's own maximum, which is below the
+    off-frame peak and therefore stricter. Without a positive denominator, only
+    exact identity passes.
     """
 
     kind: str = eqx.field(static=True)
@@ -513,7 +517,13 @@ def _axis_residuals(images, sources, pixels, axis):
     selected = (
         jnp.sum((coordinates[None] - sources[:, :, None, None]) ** 2, axis=1) <= 1.0
     )
-    peaks = jnp.max(jnp.where(selected, images, -jnp.inf), axis=(1, 2))
+    peaks = jnp.where(
+        jnp.any(selected, axis=(1, 2)),
+        jnp.max(jnp.where(selected, images, -jnp.inf), axis=(1, 2)),
+        # Sources beyond the frame have no in-stamp peak; the image maximum is
+        # below theirs, so the relative residual is the stricter one.
+        jnp.max(images, axis=(1, 2)),
+    )
     flipped = images[:, :, ::-1] if axis == 0 else images[:, ::-1, :]
     differences = jnp.max(jnp.abs(images - flipped), axis=(1, 2))
     positive = peaks > 0
