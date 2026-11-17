@@ -3,6 +3,7 @@
 # The optional dependency guard and Agg selection must precede plotting imports.
 # ruff: noqa: E402
 import pytest
+from hwoutils.grids import Frame, PixelGrid
 
 ep = pytest.importorskip("eyepiece")
 
@@ -171,7 +172,12 @@ def test_stencil_callable_samples():
     ],
 )
 def test_coverage_geometry_and_update(quadrant, origin, expected):
-    lattice = sc.Lattice(jnp.array(origin), jnp.array([0.25, 0.5]), (40, 48))
+    lattice = sc.source_grid(
+        jnp.array(origin),
+        jnp.array([0.25, 0.5]),
+        (40, 48),
+        Frame(500.0, 6.0, "circumscribed"),
+    )
     domain = sc.Domain(
         "box", "closed", jnp.array([[-1.0, -2.0], [1.0, 2.0]]), jnp.zeros(2)
     )
@@ -244,16 +250,18 @@ def test_pixel_centers_and_read_update(full_reader):
     read = full_reader.read(jnp.array([0.0, 0.0]), jnp.array(0, dtype=jnp.int32))
     pixels = full_reader.products.pixels
     result = viz.plot_read(read, pixels=pixels)
-    result.update(np.ones(pixels.shape_yx) * 2)
-    fresh = viz.plot_read(np.ones(pixels.shape_yx) * 2, pixels=pixels)
+    result.update(np.ones(pixels.shape) * 2)
+    fresh = viz.plot_read(np.ones(pixels.shape) * 2, pixels=pixels)
     np.testing.assert_allclose(
         result.artists["image"].get_array(), fresh.artists["image"].get_array()
     )
-    custom = sc.PixelGrid(
+    custom = PixelGrid(
         (3, 4),
-        jnp.array([1.0, 0.0]),
+        (jnp.array([1.0, 0.0]))[0],
+        (jnp.array([1.0, 0.0]))[1],
         jnp.diag(jnp.array([0.5, 0.25])),
-        "pixel_integral",
+        "lod",
+        Frame(500.0, 6.0, "circumscribed"),
     )
     image = viz.plot_read(np.ones((3, 4)), pixels=custom).artists["image"]
     np.testing.assert_allclose(image.get_extent(), [-0.75, 1.25, -0.125, 0.625])

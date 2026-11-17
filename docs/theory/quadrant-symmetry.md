@@ -91,7 +91,7 @@ def negative_columns(s):
     return int(np.sum(floor + np.arange(-15, 17) < 0))
 
 
-num("q_nodes", f"{lattice.shape_yx[1]} by {lattice.shape_yx[0]}")
+num("q_nodes", f"{lattice.shape[1]} by {lattice.shape[0]}")
 num("q_h", f"{H}")
 num("q_neg_plus", f"{negative_columns(0.2)}")
 num("q_neg_minus", f"{negative_columns(-0.2)}")
@@ -488,8 +488,9 @@ whose spacing is $h=0.38$ and whose served edge along $x$ is 4.18.
 
 ```{code-cell} python
 :tags: [hide-input]
-starter = sc.Lattice(jnp.zeros(2), jnp.full(2, H), (31, 27))
-ny, nx = starter.shape_yx
+from hwoutils.grids import Frame
+starter = sc.source_grid(jnp.zeros(2), jnp.full(2, H), (31, 27), Frame(500.0, 6.0, "circumscribed"))
+ny, nx = starter.shape
 served_x = (nx - 16) * H
 served_y = (ny - 16) * H
 fig, ax = plt.subplots(figsize=(10, 2.2), constrained_layout=True)

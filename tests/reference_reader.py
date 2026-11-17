@@ -6,13 +6,15 @@ from functools import cache
 
 import numpy as np
 
+from sinchole.geometry import origin_xy, spacing_xy
+
 
 def reference_read(data, query, product=0, shift_y=0):
     """Return the raw finite sum and absolute weighted sum per detector pixel."""
     query = np.asarray(query, dtype=float).copy()
     query[np.abs(query) < np.finfo(float).tiny] = 0.0
-    origin = np.asarray(data["declared_lattice"].origin_xy_lod)
-    spacing = np.asarray(data["declared_lattice"].spacing_xy_lod)
+    origin = np.asarray(origin_xy(data["declared_lattice"]))
+    spacing = np.asarray(spacing_xy(data["declared_lattice"]))
     taps, weights = [], []
     for axis in range(2):
         difference = float(query[axis] - origin[axis])
@@ -28,9 +30,9 @@ def reference_read(data, query, product=0, shift_y=0):
         )
         taps.append(indices)
         weights.append(weight)
-    shape = data["products"].pixels.shape_yx
+    shape = data["products"].pixels.shape
     nodes = np.asarray(data["intensity_nodes"])
-    cube = nodes.reshape(nodes.shape[0], *data["declared_lattice"].shape_yx, *shape)
+    cube = nodes.reshape(nodes.shape[0], *data["declared_lattice"].shape, *shape)
     reflected = data["reflection"].kind == "two_axis_pixel_flip_v1"
     result, absolute = np.zeros(shape), np.zeros(shape)
     for j, iy in enumerate(taps[1]):
@@ -101,11 +103,11 @@ def reference_prefiltered_read(data, query, taps, half_width, bands, betas, prod
     up to ``half_width``. ``bands`` and ``betas`` are (x, y).
     """
     lattice = data["declared_lattice"]
-    origin = np.asarray(lattice.origin_xy_lod)
-    spacing = np.asarray(lattice.spacing_xy_lod)
-    shape = data["products"].pixels.shape_yx
+    origin = np.asarray(origin_xy(lattice))
+    spacing = np.asarray(spacing_xy(lattice))
+    shape = data["products"].pixels.shape
     nodes = np.asarray(data["intensity_nodes"], dtype=float)
-    sy, sx = lattice.shape_yx
+    sy, sx = lattice.shape
     cube = np.zeros((sy, sx, *shape))
     for row, (ix, iy) in enumerate(np.asarray(data["indices_xy"])):
         cube[iy, ix] = nodes[product, row]

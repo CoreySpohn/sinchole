@@ -7,9 +7,11 @@ import os
 import jax
 import jax.numpy as jnp
 import pytest
+from hwoutils.grids import Frame, PixelGrid
 from hypothesis import settings
 
 import sinchole as sc
+from sinchole.geometry import origin_xy, spacing_xy
 
 # Released hwoutils versions may not include the optional budget plugin yet.
 pytest_plugins = []
@@ -63,19 +65,22 @@ def delivery(
     spacing = jnp.broadcast_to(jnp.asarray(spacing, dtype=jnp.float64), (2,))
     count = tuple(int(n) + 1 if quadrant else 2 * int(n) + 1 for n in half)
     origin = jnp.zeros(2) if quadrant else -half * spacing
-    lattice = sc.Lattice(origin, spacing, (count[1], count[0]))
-    iy, ix = jnp.indices(lattice.shape_yx, dtype=jnp.int32)
+    lattice = sc.source_grid(
+        origin, spacing, (count[1], count[0]), Frame(500.0, 6.0, "circumscribed")
+    )
+    iy, ix = jnp.indices(lattice.shape, dtype=jnp.int32)
     indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
-    offsets = lattice.origin_xy_lod + indices * lattice.spacing_xy_lod
+    offsets = origin_xy(lattice) + indices * spacing_xy(lattice)
     images = jax.vmap(truth)(offsets)[None]
-    pixels = sc.PixelGrid(
+    pixels = PixelGrid(
         shape,
-        jnp.array([(shape[1] - 1) / 2, (shape[0] - 1) / 2]),
+        (jnp.array([(shape[1] - 1) / 2, (shape[0] - 1) / 2]))[0],
+        (jnp.array([(shape[1] - 1) / 2, (shape[0] - 1) / 2]))[1],
         jnp.eye(2) * 0.25,
-        "pixel_integral",
+        "lod",
+        Frame(500.0, 6.0, "circumscribed"),
     )
     products = sc.Products(
-        sc.Frame(jnp.array(500.0), jnp.array(6.0), "entrance_diameter"),
         pixels,
         sc.Normalization(
             "incident_photon", jnp.array([1.0]), jnp.array([jnp.nan]), (), "units"

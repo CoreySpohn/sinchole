@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import pytest
+from hwoutils.grids import Frame, PixelGrid
 
 import sinchole as sc
 
@@ -27,7 +28,6 @@ def test_reads_match_direct_vortex_propagation():
     from physicaloptix import (
         Field,
         Fraunhofer,
-        Grid,
         MultiScaleVortex,
         OpticalPath,
         PlaneKind,
@@ -35,10 +35,9 @@ def test_reads_match_direct_vortex_propagation():
     )
     from physicaloptix.elements import SampledOptic
 
-    pupil = Grid.pupil(PUPIL_SAMPLES)
-    focal = Grid.focal(DETECTOR, PIXEL_LOD)
-    coordinate = jnp.asarray(pupil.coords)
-    u, v = jnp.meshgrid(coordinate, coordinate)
+    pupil = PixelGrid.pupil(PUPIL_SAMPLES)
+    focal = PixelGrid.focal(DETECTOR, PIXEL_LOD, Frame(500.0, 6.0, "circumscribed"))
+    u, v = pupil.coordinates()
     aperture = (jnp.hypot(u, v) <= 0.5).astype(jnp.float64)
     vortex = MultiScaleVortex.build(
         charge=6, npup=PUPIL_SAMPLES, q=64, scaling_factor=4, window_size=16
@@ -72,12 +71,13 @@ def test_reads_match_direct_vortex_propagation():
     unit = float(jnp.max(samples))
     shape = (DETECTOR, DETECTOR)
     products = sc.Products(
-        sc.Frame(jnp.array(500.0), jnp.array(6.0), "entrance_diameter"),
-        sc.PixelGrid(
+        PixelGrid(
             shape,
-            jnp.full(2, (DETECTOR - 1) / 2),
+            (jnp.full(2, (DETECTOR - 1) / 2))[0],
+            (jnp.full(2, (DETECTOR - 1) / 2))[1],
             jnp.eye(2) * PIXEL_LOD,
-            "pixel_integral",
+            "lod",
+            Frame(500.0, 6.0, "circumscribed"),
         ),
         sc.Normalization(
             "incident_photon", jnp.array([1.0]), jnp.array([jnp.nan]), (), "units"
@@ -121,7 +121,12 @@ def test_reads_match_direct_vortex_propagation():
         grid = sc.admit_grid(
             samples[None] / unit,
             offsets,
-            declared_lattice=sc.Lattice(origin, jnp.full(2, SPACING), (NODES, NODES)),
+            declared_lattice=sc.source_grid(
+                origin,
+                jnp.full(2, SPACING),
+                (NODES, NODES),
+                Frame(500.0, 6.0, "circumscribed"),
+            ),
             indices_xy=indices,
             products=products,
             reflection=reflection,

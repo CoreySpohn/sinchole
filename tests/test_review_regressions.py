@@ -9,10 +9,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from conftest import delivery, make_reader
+from hwoutils.grids import Frame
 from hypothesis import given
 from hypothesis import strategies as st
 
 import sinchole as sc
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.kernel import exact_quotient_floor_v1
 from sinchole.reader import estimate_memory
 
@@ -85,12 +87,15 @@ def test_supported_metadata_range(full_delivery, field, value):
     reason = sc.Reason.METADATA_CONFLICT
     if field in ("pitch", "origin"):
         lattice = data["declared_lattice"]
-        select = (
-            (lambda lattice: lattice.spacing_xy_lod)
-            if field == "pitch"
-            else (lambda lattice: lattice.origin_xy_lod)
+        origin = origin_xy(lattice) if field == "pitch" else [value, value]
+        spacing = [value, value] if field == "pitch" else spacing_xy(lattice)
+        if field == "pitch" and value < 1e-150:
+            with pytest.raises(ValueError, match="nonsingular"):
+                sc.source_grid(origin, spacing, lattice.shape, lattice.frame)
+            return
+        data["declared_lattice"] = sc.source_grid(
+            origin, spacing, lattice.shape, lattice.frame
         )
-        data["declared_lattice"] = eqx.tree_at(select, lattice, jnp.full(2, value))
         reason = sc.Reason.LAYOUT_UNSUPPORTED
     elif field == "annulus":
         data["domain"] = sc.Domain(
@@ -105,26 +110,18 @@ def test_supported_metadata_range(full_delivery, field, value):
     assert result.reason_bits & reason
 
 
-def test_tiny_quadrant_pitch_refused():
-    """Fails if subnormal remainder scales admit an unsafe negative stencil."""
-    data = delivery(quadrant=True, shape=(1, 1))
-    data["declared_lattice"] = eqx.tree_at(
-        lambda lattice: lattice.spacing_xy_lod,
-        data["declared_lattice"],
-        jnp.full(2, 1e-300),
-    )
-    data["offsets_xy_lod"] = data["indices_xy"] * 1e-300
-    result = sc.admit_grid(**data)
-    assert not result.admitted and result.reason_bits & sc.Reason.LAYOUT_UNSUPPORTED
-
-
 def test_annulus_inclusive_coverage_corner(full_delivery):
     """Fails if safe-point selection discards an inclusive coverage corner."""
     data = dict(full_delivery)
     iy, ix = np.indices((32, 32), dtype=np.int32)
     indices = np.stack((ix.ravel(), iy.ravel()), axis=1)
     data.update(
-        declared_lattice=sc.Lattice(jnp.zeros(2), jnp.full(2, 0.25), (32, 32)),
+        declared_lattice=sc.source_grid(
+            jnp.zeros(2),
+            jnp.full(2, 0.25),
+            (32, 32),
+            Frame(500.0, 6.0, "circumscribed"),
+        ),
         indices_xy=indices,
         offsets_xy_lod=indices * 0.25,
         intensity_nodes=jnp.ones((1, 1024, 8, 6)),

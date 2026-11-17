@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from sinchole._types import F64, check_array, check_static
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.kernel import KernelProfile, flush_subnormal
 
 _RAW_PROFILE = KernelProfile()
@@ -87,8 +88,8 @@ def coverage(query, lattice, reflected, profile=_RAW_PROFILE):
     A query is covered when its taps, and the profile's halo of stored nodes
     beyond the first and the last tap, all lie inside the signed table.
     """
-    start = profile.stencil_start(query, lattice.origin_xy_lod, lattice.spacing_xy_lod)
-    size = jnp.asarray(lattice.shape_yx[::-1], dtype=jnp.float64)
+    start = profile.stencil_start(query, origin_xy(lattice), spacing_xy(lattice))
+    size = jnp.asarray(lattice.shape[::-1], dtype=jnp.float64)
     halo = float(profile.halo)
     lower = halo + 1 - size if reflected else jnp.full((2,), halo)
     upper = size - halo - profile.taps
@@ -112,9 +113,9 @@ def safe_query(domain, lattice, reflected, profile=_RAW_PROFILE):
     every floating-point geometry: an unresolved intersection returns None,
     causing admission to refuse with INCOMPLETE_STENCIL.
     """
-    origin = lattice.origin_xy_lod.tolist()
-    spacing = lattice.spacing_xy_lod.tolist()
-    size = lattice.shape_yx[::-1]
+    origin = origin_xy(lattice).tolist()
+    spacing = spacing_xy(lattice).tolist()
+    size = lattice.shape[::-1]
     below, above = profile.coverage_margins
     low = [
         o + h * (above - n if reflected else below)
@@ -169,3 +170,39 @@ def safe_query(domain, lattice, reflected, profile=_RAW_PROFILE):
         if permitted:
             return points[index]
     return None
+
+
+def restrict_domain(declared, override=None):
+    """Validate numeric range and require an override to restrict permission."""
+    for domain in (declared, override):
+        if domain is not None and not in_supported_range(domain):
+            raise ValueError("Domain outside supported numeric range")
+    if declared is None:
+        return override
+    if override is None:
+        return declared
+    if override.kind != declared.kind or override.boundary != declared.boundary:
+        raise ValueError("Domain override must restrict declared geometry and boundary")
+    if declared.kind == "box":
+        subset = jnp.all(
+            override.limits_xy_lod[0] >= declared.limits_xy_lod[0]
+        ) & jnp.all(override.limits_xy_lod[1] <= declared.limits_xy_lod[1])
+    else:
+        subset = (
+            override.radii_lod[0] >= declared.radii_lod[0]
+            and override.radii_lod[1] <= declared.radii_lod[1]
+        )
+    if not bool(subset):
+        raise ValueError("Domain override cannot expand served permission")
+    return override
+
+
+def validate_check_positions(positions, domain, lattice, reflected, profile=None):
+    """Reject independent checks outside permission or full stencil coverage."""
+    profile = KernelProfile() if profile is None else profile
+    for position in positions:
+        query = jnp.asarray(position, dtype=jnp.float64)
+        if domain is not None and not bool(domain.contains(query)):
+            raise ValueError("DATA_INVALID: independent check outside served domain")
+        if not bool(coverage(query, lattice, reflected, profile)):
+            raise ValueError("DATA_INVALID: independent check outside stencil coverage")

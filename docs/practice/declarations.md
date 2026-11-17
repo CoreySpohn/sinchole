@@ -47,6 +47,7 @@ delivery and prints each declaration on a labeled line, in the order of the
 sections that follow, so each entry below can be matched to its line.
 
 ```{code-cell} python
+from sinchole.geometry import origin_xy, spacing_xy
 toy = tc.ToyCoronagraph()
 delivery = tc.quadrant_delivery(toy)
 products, lattice = delivery["products"], delivery["declared_lattice"]
@@ -56,13 +57,13 @@ nodes = delivery["intensity_nodes"]
 
 print("intensity_nodes :", tuple(nodes.shape), nodes.dtype, "[products, nodes, rows, columns]")
 print("offsets_xy_lod  :", tuple(delivery["offsets_xy_lod"].shape), "x then y, in lambda0/D")
-print("declared_lattice: origin", lattice.origin_xy_lod, "spacing", lattice.spacing_xy_lod,
-      "shape (ny, nx)", lattice.shape_yx)
+print("declared_lattice: origin", origin_xy(lattice), "spacing", spacing_xy(lattice),
+      "shape (ny, nx)", lattice.shape)
 print("indices_xy      :", tuple(delivery["indices_xy"].shape), "integer (ix, iy) per node")
 print("Frame           :", frame.reference_wavelength_nm, "nm,", frame.diameter_m, "m,",
       frame.diameter_convention, "|", frame.coordinate_model)
-print("PixelGrid       :", pixels.shape_yx, "center", pixels.center_xy_pix,
-      "pixel", pixels.basis_xy_lod[0, 0], "lambda0/D,", pixels.measure)
+print("PixelGrid       :", pixels.shape, "center", jnp.asarray((pixels.center_x, pixels.center_y)),
+      "pixel", jnp.asarray(pixels.basis)[0, 0], "lambda0/D,", products.measure)
 print("Normalization   :", norm.reference, "| conversion", norm.photon_conversion,
       "| source", norm.provenance_id)
 print("Wavelengths     :", products.kind, products.wavelength_nm, "nm, shortest",
@@ -171,7 +172,7 @@ each premise with code 1 and a `source_id` that names the declaration.
   adapter argument and not a delivery field, because yippy sets it from the
   dtype of the offsets file.
 
-`declared_lattice` (`Lattice`)
+`declared_lattice` (`hwoutils.grids.PixelGrid`)
 : The authoritative origin, spacing and node count per axis. A designer
   states the spacing they propagated at, and sinchole never fits it from
   rounded endpoints. The cell below shows why.

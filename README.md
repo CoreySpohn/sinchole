@@ -24,20 +24,19 @@ This synthetic constant field supplies explicit physical declarations. Real
 products must supply their own provenance and justified support extents.
 
 ```python
+from hwoutils.grids import Frame
+from sinchole.geometry import origin_xy, spacing_xy
 import jax
 import jax.numpy as jnp
 import sinchole as sc
 
 jax.config.update("jax_enable_x64", True)
 
-pixels = sc.PixelGrid(
-    shape_yx=(2, 2),
-    center_xy_pix=jnp.array([0.5, 0.5]),
-    basis_xy_lod=jnp.eye(2) * 0.25,
-    measure="pixel_integral",
-)
+from hwoutils.grids import Frame, PixelGrid
+
+frame = Frame(500.0, 6.0, "circumscribed")
+pixels = PixelGrid.regular((2, 2), 0.25, "lod", frame=frame)
 products = sc.Products(
-    frame=sc.Frame(jnp.array(500.0), jnp.array(6.0), "entrance_diameter"),
     pixels=pixels,
     normalization=sc.Normalization(
         "incident_photon", jnp.array([1.0]), jnp.array([jnp.nan]), (), "example-units"
@@ -59,10 +58,10 @@ products = sc.Products(
     spectral_weight_id="mono",
     identity="example-product",
 )
-lattice = sc.Lattice(jnp.array([-5.0, -5.0]), jnp.array([0.25, 0.25]), (41, 41))
-iy, ix = jnp.indices(lattice.shape_yx, dtype=jnp.int32)
+lattice = sc.source_grid(jnp.array([-5.0, -5.0]), jnp.array([0.25, 0.25]), (41, 41), Frame(500.0, 6.0, "circumscribed"))
+iy, ix = jnp.indices(lattice.shape, dtype=jnp.int32)
 indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
-offsets = lattice.origin_xy_lod + indices * lattice.spacing_xy_lod
+offsets = origin_xy(lattice) + indices * spacing_xy(lattice)
 reflection = sc.Reflection(
     "none", jnp.array([False, False]), "", "", jnp.int32(0), "", jnp.array([False])
 )

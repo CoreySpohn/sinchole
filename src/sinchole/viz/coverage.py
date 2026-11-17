@@ -15,7 +15,7 @@ def plot_coverage(
     """Map stored nodes and the half-open rectangle served by complete stencils.
 
     Args:
-        lattice: Lattice or ``(origin_xy, spacing_xy, shape_yx)`` tuple.
+        lattice: PixelGrid or ``(origin_xy, spacing_xy, shape_yx)`` tuple.
         domain: Optional Domain box or origin-centered annulus to outline.
         quadrant: Reflect stored nodes across both axes without duplicates.
             Requires a zero-origin positive quadrant lattice.

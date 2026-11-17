@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 import jax
+from hwoutils.grids import Frame, PixelGrid
 
 jax.config.update("jax_enable_x64", True)
 
@@ -31,6 +32,7 @@ import jax.numpy as jnp  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from astropy.io import fits  # noqa: E402
+from hwoutils.constants import m2nm  # noqa: E402
 
 import sinchole as sc  # noqa: E402
 from sinchole import viz  # noqa: E402
@@ -79,16 +81,21 @@ def load(root):
     ny, nx = manifest["detector_shape_yx"]
     pitch = manifest["pixel_scale_lod_xy"][0]
     center = manifest["detector_center_xy"]
-    wavelength_nm = plane["wavelength_m"] * 1e9
+    wavelength_nm = plane["wavelength_m"] * m2nm
     premises = manifest["premises"]
     products = sc.Products(
-        frame=sc.Frame(
-            jnp.array(manifest["lambda0_m"] * 1e9),
-            jnp.array(manifest["diameter_m"]),
-            manifest["diameter_convention"],
-        ),
-        pixels=sc.PixelGrid(
-            (ny, nx), jnp.array(center, float), jnp.eye(2) * pitch, "pixel_integral"
+        pixels=PixelGrid(
+            (ny, nx),
+            (jnp.array(center, float))[0],
+            (jnp.array(center, float))[1],
+            jnp.eye(2) * pitch,
+            "lod",
+            Frame(
+                manifest["lambda0_m"] * m2nm,
+                manifest["diameter_m"],
+                manifest["diameter_convention"],
+                manifest["coordinate_model"],
+            ),
         ),
         normalization=sc.Normalization(
             "incident_photon",
@@ -100,7 +107,7 @@ def load(root):
         kind="monochromatic",
         wavelength_nm=jnp.array([wavelength_nm]),
         limits_nm=jnp.array([[wavelength_nm, wavelength_nm]]),
-        sampling_min_nm=jnp.array([plane["sampling_min_wavelength_m"] * 1e9]),
+        sampling_min_nm=jnp.array([plane["sampling_min_wavelength_m"] * m2nm]),
         campaign_sampling_min_nm=jnp.array(np.nan),
         support_extent_xy=jnp.array([manifest["support_extent_D"]]),
         support_evidence=jnp.array([1], dtype=jnp.int32),
@@ -114,10 +121,11 @@ def load(root):
         spectral_weight_id="monochromatic",
         identity=f"{manifest['delivery_id']}:{plane['id']}",
     )
-    lattice = sc.Lattice(
+    lattice = sc.source_grid(
         jnp.array(manifest["source_origin_lod"], dtype=jnp.float64),
         jnp.array(manifest["source_spacing_lod"], dtype=jnp.float64),
         (int(indices[:, 1].max()) + 1, int(indices[:, 0].max()) + 1),
+        products.frame,
     )
     reflection_meta = manifest["reflection"]
     argument = (

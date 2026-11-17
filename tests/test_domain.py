@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 import sinchole as sc
+from sinchole.geometry import spacing_xy
 
 
 @pytest.mark.parametrize(
@@ -63,10 +64,11 @@ def test_subnormal_host_rejection(full_delivery):
     """Fails if denormal hardware modes decide metadata admission."""
     with pytest.raises(ValueError):
         sc.Domain("box", "closed", jnp.array([[5e-324, 0.0], [1.0, 1.0]]), jnp.zeros(2))
-    data = dict(full_delivery)
-    data["declared_lattice"] = eqx.tree_at(
-        lambda lattice: lattice.origin_xy_lod,
-        data["declared_lattice"],
-        jnp.array([5e-324, 0.0]),
+    grid = full_delivery["declared_lattice"]
+    data = dict(
+        full_delivery,
+        declared_lattice=sc.source_grid(
+            [5e-324, 0.0], spacing_xy(grid), grid.shape, grid.frame
+        ),
     )
     assert sc.admit_grid(**data).reason_bits & sc.Reason.GRID_NONUNIFORM

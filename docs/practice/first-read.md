@@ -74,10 +74,11 @@ delivery = tc.quadrant_delivery(toy)
 
 ```{code-cell} python
 :tags: [remove-cell]
+from sinchole.geometry import origin_xy, spacing_xy
 products = delivery["products"]
 lattice = delivery["declared_lattice"]
-step = float(lattice.spacing_xy_lod[0])
-count = int(lattice.shape_yx[0])
+step = float(spacing_xy(lattice)[0])
+count = int(lattice.shape[0])
 half = float(delivery["domain"].limits_xy_lod[1, 0])
 rho = 2 * step * float(products.support_extent_xy[0, 0])
 put("t_npix", f"{toy.n_pix} by {toy.n_pix}")

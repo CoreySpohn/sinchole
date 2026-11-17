@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+from hwoutils.grids import Frame, PixelGrid
 
 import sinchole as sc
 
@@ -111,14 +112,15 @@ def products_for(toy, *, identity="toy-lyot"):
     and fixed linear optics after the source tilt.
     """
     center = (toy.n_pix - 1) / 2
-    pixels = sc.PixelGrid(
+    pixels = PixelGrid(
         (toy.n_pix, toy.n_pix),
-        jnp.array([center, center]),
+        (jnp.array([center, center]))[0],
+        (jnp.array([center, center]))[1],
         jnp.eye(2) * toy.pixscale_lod,
-        "point_density",
+        "lod",
+        Frame(500.0, 6.0, "circumscribed"),
     )
     return sc.Products(
-        frame=sc.Frame(jnp.array(500.0), jnp.array(6.0), "entrance_diameter"),
         pixels=pixels,
         normalization=sc.Normalization(
             "incident_photon",
@@ -143,6 +145,7 @@ def products_for(toy, *, identity="toy-lyot"):
         optical_id="toy",
         spectral_weight_id="mono",
         identity=identity,
+        measure="point_density",
     )
 
 
@@ -159,8 +162,13 @@ def quadrant_delivery(toy=None, *, spacing=0.38, nodes=31, domain_half=5.0):
         A dict ready for ``sinchole.admit_grid(**delivery)``.
     """
     toy = ToyCoronagraph() if toy is None else toy
-    lattice = sc.Lattice(jnp.zeros(2), jnp.full(2, spacing), (nodes, nodes))
-    iy, ix = jnp.indices(lattice.shape_yx, dtype=jnp.int32)
+    lattice = sc.source_grid(
+        jnp.zeros(2),
+        jnp.full(2, spacing),
+        (nodes, nodes),
+        Frame(500.0, 6.0, "circumscribed"),
+    )
+    iy, ix = jnp.indices(lattice.shape, dtype=jnp.int32)
     indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
     offsets = indices * spacing
     signed = jnp.array([[-3, 2], [3, -2], [-3, -2]], dtype=jnp.int32)

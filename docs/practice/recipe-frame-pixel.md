@@ -141,8 +141,10 @@ pixel and admits the grid.
 ```{code-cell} python
 good = tc.quadrant_delivery(toy)
 pixels = good["products"].pixels
-moved = eqx.tree_at(lambda p: p.pixels.center_xy_pix, good["products"],
-                    pixels.center_xy_pix + 0.5)
+from dataclasses import replace
+moved = replace(good["products"], pixels=replace(
+    pixels, center_x=pixels.center_x + 0.5, center_y=pixels.center_y + 0.5
+))
 admission = sc.admit_grid(**dict(good, products=moved))
 print("center moved by half a pixel:", sc.reason_names(admission.reason_bits))
 ```

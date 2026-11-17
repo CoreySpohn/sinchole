@@ -103,7 +103,7 @@ class SceneRenderer(eqx.Module):
             raise ValueError("Scene positions must be finite, permitted and covered")
         taps = jax.vmap(lambda q: reader.stencil(flush_subnormal(q))[0])(positions)
         # Nodes that some covered read can use, as signed (low, high) per axis.
-        size = reader.grid.source.shape_yx[::-1]
+        size = reader.grid.source.shape[::-1]
         halo = reader.profile.halo
         reflected = reader.grid.reflection.kind != "none"
         usable = [(halo - (n - 1) if reflected else halo, n - 1 - halo) for n in size]
@@ -239,7 +239,7 @@ class SceneRenderer(eqx.Module):
         """Contract node amplitudes with the table and attach read diagnostics."""
         reader = self.reader
         partial = self._contract(amplitudes).reshape(
-            amplitudes.shape[0], *reader.products.pixels.shape_yx
+            amplitudes.shape[0], *reader.products.pixels.shape
         )
         image = partial[0]
         if self._groups == 4:

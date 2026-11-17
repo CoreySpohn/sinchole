@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from conftest import delivery, make_prefiltered, tone_truth
+from hwoutils.grids import Frame
 from reference_reader import (
     _bump,
     reference_prefiltered_read,
@@ -18,6 +19,7 @@ from reference_reader import (
 import sinchole as sc
 from sinchole import prefilter
 from sinchole.domain import coverage
+from sinchole.geometry import origin_xy
 from sinchole.kernel import bump_stencil
 from sinchole.prefilter import (
     build_coefficients,
@@ -172,7 +174,12 @@ def test_covered_interval_endpoints(taps, reflected):
     lower limit to minus the upper one, included.
     """
     size, spacing = 40, 0.25
-    lattice = sc.Lattice(jnp.zeros(2), jnp.full(2, spacing), (size, size))
+    lattice = sc.source_grid(
+        jnp.zeros(2),
+        jnp.full(2, spacing),
+        (size, size),
+        Frame(500.0, 6.0, "circumscribed"),
+    )
     profile = sc.PrefilteredKernelProfile(taps=taps)
     below = (taps - 1) / 2 + 5.5 if taps % 2 else taps / 2 + 5.0
     above = size - below - 1.0
@@ -354,8 +361,8 @@ def test_table_edge_reads_and_halo_refusal(quadrant_table):
     )
     data["memory"] = BUDGET
     reader, _ = make_prefiltered(data)
-    size = data["declared_lattice"].shape_yx[0]
-    origin = float(data["declared_lattice"].origin_xy_lod[0])
+    size = data["declared_lattice"].shape[0]
+    origin = float(origin_xy(data["declared_lattice"])[0])
     # Dyadic spacing makes both limits exact: the lower is covered, the upper not.
     high = origin + 0.25 * (size - 9.5)
     low = -high if quadrant_table else origin + 0.25 * 8.5
@@ -451,7 +458,7 @@ def test_batch_checks_and_node_reads(full):
     with pytest.raises(sc.ReadRefused):
         sc.require_read(batch)
     empty = sc.read_batch(reader, jnp.zeros((0, 2)), jnp.zeros(0, dtype=jnp.int32))
-    assert empty.intensity.shape == (0, *data["products"].pixels.shape_yx)
+    assert empty.intensity.shape == (0, *data["products"].pixels.shape)
     node = jnp.array([0.3, 0.56])
     stored = truth(node)
     deviation = float(jnp.max(jnp.abs(batch.intensity[1] - stored)))

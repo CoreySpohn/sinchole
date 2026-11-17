@@ -1,6 +1,7 @@
 """Admission refusal, canonicalization, and independent empirical evidence."""
 
 import math
+from dataclasses import replace
 
 import equinox as eqx
 import jax
@@ -10,6 +11,7 @@ import pytest
 from conftest import analytic, delivery, make_reader
 
 import sinchole as sc
+from sinchole.geometry import origin_xy, spacing_xy
 
 
 def changed(data, key, where, value):
@@ -83,11 +85,9 @@ def test_metadata_geometry_resources(full_delivery, case, reason):
             data, "products", lambda p: p.sampling_min_nm, jnp.array([600.0])
         )
     elif case == "frame":
-        data = changed(
-            data,
-            "products",
-            lambda p: p.pixels.basis_xy_lod,
-            jnp.array([[0.25, 0.1], [0.0, 0.25]]),
+        products = data["products"]
+        data["products"] = replace(
+            products, pixels=replace(products.pixels, basis=((0.25, 0.1), (0.0, 0.25)))
         )
     elif case == "halo":
         data["domain"] = sc.Domain(
@@ -145,15 +145,14 @@ def test_quadrant_refusals(quadrant_delivery, case, reason):
     elif case == "declaration":
         data = changed(data, "reflection", lambda r: r.axes, jnp.array([True, False]))
     elif case == "center":
-        data = changed(
-            data, "products", lambda p: p.pixels.center_xy_pix, jnp.array([3.0, 4.0])
+        products = data["products"]
+        data["products"] = replace(
+            products, pixels=replace(products.pixels, center_x=3.0, center_y=4.0)
         )
     else:
-        data = changed(
-            data,
-            "declared_lattice",
-            lambda lattice: lattice.origin_xy_lod,
-            jnp.array([0.25, 0.0]),
+        grid = data["declared_lattice"]
+        data["declared_lattice"] = sc.source_grid(
+            [0.25, 0.0], spacing_xy(grid), grid.shape, grid.frame
         )
     result = sc.admit_grid(**data)
     assert not result.admitted and result.reason_bits & reason
@@ -171,21 +170,21 @@ def test_quadrant_refusals(quadrant_delivery, case, reason):
 )
 def test_literal_sampling_threshold(full_delivery, pitch, campaign, margin, nyquist):
     """Fails on tolerance-relaxed margins or reassociated wavelength arithmetic."""
-    data = changed(
+    grid = full_delivery["declared_lattice"]
+    data = dict(
         full_delivery,
-        "declared_lattice",
-        lambda lattice: lattice.spacing_xy_lod,
-        jnp.full(2, pitch),
+        declared_lattice=sc.source_grid(
+            origin_xy(grid), [pitch, pitch], grid.shape, grid.frame
+        ),
     )
     data = changed(
         data, "products", lambda p: p.campaign_sampling_min_nm, jnp.array(campaign)
     )
-    data["offsets_xy_lod"] = (
-        data["declared_lattice"].origin_xy_lod
-        + data["indices_xy"] * data["declared_lattice"].spacing_xy_lod
-    )
+    data["offsets_xy_lod"] = origin_xy(data["declared_lattice"]) + data[
+        "indices_xy"
+    ] * spacing_xy(data["declared_lattice"])
     # Keep permission in the interior after changing pitch; no endpoint fitting.
-    midpoint = data["declared_lattice"].origin_xy_lod + 20 * pitch
+    midpoint = origin_xy(data["declared_lattice"]) + 20 * pitch
     data["domain"] = sc.Domain(
         "box", "closed", jnp.stack((midpoint - 0.1, midpoint + 0.1)), jnp.zeros(2)
     )

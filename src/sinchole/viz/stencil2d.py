@@ -30,7 +30,7 @@ def plot_stencil_2d(
 
     Args:
         query: Finite ``(x, y)`` source position.
-        lattice: Lattice or ``(origin_xy, spacing_xy, shape_yx)`` tuple.
+        lattice: PixelGrid or ``(origin_xy, spacing_xy, shape_yx)`` tuple.
         quadrant: The lattice stores only the positive quadrant. Taps at
             negative nodes are hollow (they exist only by symmetry) and mirrored
             nodes are drawn as dim dots. Requires a zero lattice origin.

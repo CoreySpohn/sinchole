@@ -97,7 +97,8 @@ and one read's stencil rectangle. Look at where the stencil rectangle sits
 against the region: a read is served only if the rectangle lies inside it.
 
 ```{code-cell} python
-lattice = sc.Lattice(jnp.zeros(2), jnp.full(2, 0.38), (31, 31))
+from hwoutils.grids import Frame
+lattice = sc.source_grid(jnp.zeros(2), jnp.full(2, 0.38), (31, 31), Frame(500.0, 6.0, "circumscribed"))
 domain = sc.Domain("box", "closed", jnp.array([[-5.0, -5.0], [5.0, 5.0]]), jnp.zeros(2))
 fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
 result = viz.plot_coverage(lattice, domain=domain, quadrant=True, query=(1.0, 2.0), ax=ax)
@@ -110,7 +111,7 @@ The chain from support width to the delivered grid: bandwidth, largest
 admissible spacing, node count and the quadrant lattice, drawn panel by panel on
 the {doc}`index` page and explained on {doc}`theory/band-limits` (bandwidth) and
 {doc}`theory/quadrant-symmetry` (node count and grid). Pass physical inputs,
-or a `Products` and a `Lattice` to draw a delivery. This cell needs neither.
+or a `Products` and a `hwoutils.grids.PixelGrid` to draw a delivery. This cell needs neither.
 
 ```{code-cell} python
 fig, ax = plt.subplots(figsize=(10, 2.6), constrained_layout=True)

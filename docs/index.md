@@ -242,6 +242,7 @@ from the optics to the grid, and every delivery in these pages follows it.
 
 ```{code-cell} python
 :tags: [remove-input]
+from hwoutils.grids import Frame
 import hwostyle
 import jax
 import jax.numpy as jnp
@@ -253,7 +254,7 @@ from sinchole import viz
 jax.config.update("jax_enable_x64", True)
 hwostyle.use("dark")
 # The code orders a lattice shape as (n_y, n_x), so the 27 by 31 grid is (31, 27).
-starter = sc.Lattice(jnp.zeros(2), jnp.full(2, H_PLAN), (31, 27))
+starter = sc.source_grid(jnp.zeros(2), jnp.full(2, H_PLAN), (31, 27), Frame(500.0, 6.0, "circumscribed"))
 fig, ax = plt.subplots(figsize=(10, 2.5), constrained_layout=True)
 viz.plot_spacing_rule(lattice=starter, support_width=1.0, sigma_max=1.0, ax=ax)
 plt.show()

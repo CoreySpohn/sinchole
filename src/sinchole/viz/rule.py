@@ -54,7 +54,7 @@ def plot_spacing_rule(
         products: Optional Products. Its widest x support extent and its
             shortest sampling wavelength (and the campaign minimum, when
             finite) set ``L`` and ``sigma_max``.
-        lattice: Optional Lattice or ``(origin_xy, spacing_xy, shape_yx)``
+        lattice: Optional PixelGrid or ``(origin_xy, spacing_xy, shape_yx)``
             tuple of a real delivery. Its x spacing replaces the rule's ``h``
             in the spacing panel, and its served half-width replaces
             ``radius``. Without it the rule builds the square lattice itself.

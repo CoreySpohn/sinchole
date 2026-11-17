@@ -22,14 +22,6 @@ def check_array(value, shape, dtype):
         raise TypeError(f"Expected dtype {dtype}, got {value.dtype}")
 
 
-def check_shape(shape):
-    """Require a positive two-dimensional static shape."""
-    if not isinstance(shape, tuple) or len(shape) != 2:
-        raise TypeError("shape_yx must be a tuple of two positive integers")
-    if any(type(n) is not int or n <= 0 for n in shape):
-        raise ValueError("shape_yx must contain positive integers")
-
-
 def check_static(module):
     """Keep textual PyTree metadata immutable and correctly typed."""
     for field in fields(module):

@@ -10,7 +10,21 @@ except ImportError:  # pragma: no cover - source tree without a generated versio
     except PackageNotFoundError:
         __version__ = "0.0.0+unknown"
 
-from sinchole.domain import Domain
+from sinchole.admission import (
+    MIRROR_TOLERANCE,
+    index_reasons,
+    judge_checks,
+    lattice_reasons,
+    offset_evidence,
+    plan_spacing,
+    sampling_ratio,
+    sampling_reasons,
+    select_profile,
+    spectral_reasons,
+    valid_intensity,
+    validate_declarations,
+)
+from sinchole.domain import Domain, coverage, restrict_domain, validate_check_positions
 from sinchole.evidence import (
     Admission,
     AdmissionRefused,
@@ -25,13 +39,11 @@ from sinchole.evidence import (
     Status,
     reason_names,
 )
+from sinchole.geometry import source_grid
 from sinchole.grid import (
     CheckSet,
-    Frame,
-    Lattice,
     MirrorCheckSet,
     Normalization,
-    PixelGrid,
     Premises,
     Products,
     Reflection,
@@ -39,7 +51,14 @@ from sinchole.grid import (
     admit_grid,
 )
 from sinchole.kernel import KernelProfile, PrefilteredKernelProfile
-from sinchole.planner import PrefilterPlan, plan_prefilter
+from sinchole.planner import (
+    PrefilterPlan,
+    plan_cell_checks,
+    plan_mirror_bases,
+    plan_prefilter,
+    plan_radial_checks,
+    plan_sampling,
+)
 from sinchole.reader import (
     AbstractImageReader,
     ImageRead,
@@ -48,29 +67,31 @@ from sinchole.reader import (
     PrefilteredReader,
     ReadPolicy,
     Tiling,
+    check_memory,
+    estimate_memory,
+    make_reader,
+    memory_budget,
     read_batch,
     require_read,
 )
 from sinchole.scene import SceneRenderer
 
 __all__ = [
+    "MIRROR_TOLERANCE",
     "AbstractImageReader",
     "Admission",
     "AdmissionRefused",
     "BoundKind",
     "CheckSet",
     "Domain",
-    "Frame",
     "ImageRead",
     "Interpolator",
     "KernelProfile",
-    "Lattice",
     "LedgerEvidence",
     "MemoryBudget",
     "MemoryLimit",
     "MirrorCheckSet",
     "Normalization",
-    "PixelGrid",
     "PlanRefused",
     "PrecisionUnavailable",
     "PrefilterPlan",
@@ -89,8 +110,31 @@ __all__ = [
     "Tiling",
     "__version__",
     "admit_grid",
+    "check_memory",
+    "coverage",
+    "estimate_memory",
+    "index_reasons",
+    "judge_checks",
+    "lattice_reasons",
+    "make_reader",
+    "memory_budget",
+    "offset_evidence",
+    "plan_cell_checks",
+    "plan_mirror_bases",
     "plan_prefilter",
+    "plan_radial_checks",
+    "plan_sampling",
+    "plan_spacing",
     "read_batch",
     "reason_names",
     "require_read",
+    "restrict_domain",
+    "sampling_ratio",
+    "sampling_reasons",
+    "select_profile",
+    "source_grid",
+    "spectral_reasons",
+    "valid_intensity",
+    "validate_check_positions",
+    "validate_declarations",
 ]

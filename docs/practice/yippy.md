@@ -86,7 +86,7 @@ rows = [
     ("indices_xy", toy_delivery["indices_xy"].shape, "integer indices from the training CSV"),
     ("mirror_checks", toy_delivery["mirror_checks"].intensity.shape,
      "mirror-checks/mono-000.fits"),
-    ("lattice", toy_delivery["declared_lattice"].shape_yx, "from the manifest layout"),
+    ("lattice", toy_delivery["declared_lattice"].shape, "from the manifest layout"),
 ]
 for name, shape, role in rows:
     print(f"{name:16s} {str(shape):18s} {role}")

@@ -22,6 +22,7 @@ from sinchole.evidence import (
     Status,
     UnknownErrorModel,
 )
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.grid import Products, SampledGrid
 from sinchole.kernel import (
     AbstractKernelProfile,
@@ -167,7 +168,8 @@ def estimate_memory(
     )
 
 
-def _check_memory(memory, estimates):
+def check_memory(memory, estimates):
+    """Raise MemoryLimit when any logical allocation exceeds its ceiling."""
     for key in ("resident", "output", "scratch", "total"):
         if estimates[key] > getattr(memory, f"max_{key}_bytes"):
             raise MemoryLimit(f"{key} estimate {estimates[key]} bytes exceeds budget")
@@ -265,13 +267,13 @@ class AbstractGridReader(AbstractImageReader):
             jnp.all(self.grid.reflection.check_passed)
         ):
             raise ValueError("Reflection checks have not passed")
-        _check_memory(self.memory, self.memory_estimate(1))
+        check_memory(self.memory, self.memory_estimate(1))
 
     def memory_estimate(self, queries):
         """Estimate this reader's allocations for ``queries`` serial reads."""
         return estimate_memory(
             self.grid.intensity.nbytes,
-            self.products.pixels.shape_yx,
+            self.products.pixels.shape,
             self.tiling,
             queries,
             profile=self.profile,
@@ -315,7 +317,7 @@ class AbstractGridReader(AbstractImageReader):
         query, product = jnp.asarray(source_xy_lod), jnp.asarray(product_index)
         check_array(query, (2,), (jnp.float64,))
         check_array(product, (), (jnp.int32,))
-        _check_memory(self.memory, self.memory_estimate(1))
+        check_memory(self.memory, self.memory_estimate(1))
         sanitized, sampling_ok, reason = self._validate(query, product)
         temporary_product = jnp.where(
             (product >= 0) & (product < self.products.wavelength_nm.size), product, 0
@@ -373,11 +375,11 @@ class Interpolator(AbstractGridReader):
 
     def _image(self, query, product):
         taps, weight = stencil(
-            query, self.grid.source.origin_xy_lod, self.grid.source.spacing_xy_lod
+            query, origin_xy(self.grid.source), spacing_xy(self.grid.source)
         )
         kx, ky = taps[0], taps[1]
         wx, wy = weight[0], weight[1]
-        ny, nx = self.products.pixels.shape_yx
+        ny, nx = self.products.pixels.shape
         pixels = ny * nx
         tile_size = min(self.tiling.pixel_tile, pixels)
         tile_count = (pixels + tile_size - 1) // tile_size
@@ -466,7 +468,7 @@ class PrefilteredReader(AbstractGridReader):
         self.grid, self.domain, self.profile = grid, domain, profile
         self.policy, self.tiling, self.memory = policy, tiling, memory
         self._safe_query, self.errors = _bind_evidence(grid, domain, profile)
-        _check_memory(memory, self.memory_estimate(1))
+        check_memory(memory, self.memory_estimate(1))
         designs = design_grid(
             profile,
             grid.products,
@@ -499,8 +501,8 @@ class PrefilteredReader(AbstractGridReader):
         """Return signed int64 taps [2, taps] and bump weights of a valid query."""
         return bump_stencil(
             query,
-            self.grid.source.origin_xy_lod,
-            self.grid.source.spacing_xy_lod,
+            origin_xy(self.grid.source),
+            spacing_xy(self.grid.source),
             self.profile,
             self._beta_xy,
             self._scale_xy,
@@ -548,16 +550,16 @@ def read_batch(
     estimates = (
         reader.memory_estimate(count)
         if gridded
-        else estimate_memory(0, reader.products.pixels.shape_yx, tiling, count)
+        else estimate_memory(0, reader.products.pixels.shape, tiling, count)
     )
-    _check_memory(reader.memory, estimates)
+    check_memory(reader.memory, estimates)
     if count == 0:
         if gridded:
             ledger = reader.errors.evaluate(
                 reader._safe_query, jnp.int32(0), jnp.ones(2), grid=reader.grid
             )
             shape = ImageRead(
-                jnp.empty(reader.products.pixels.shape_yx, dtype=jnp.float64),
+                jnp.empty(reader.products.pixels.shape, dtype=jnp.float64),
                 jnp.asarray(False),
                 jnp.asarray(False),
                 jnp.int32(0),
@@ -605,3 +607,52 @@ def require_read(result: ImageRead) -> ImageRead:
             indices, [statuses[i] for i in indices], [reasons[i] for i in indices]
         )
     return result
+
+
+def make_reader(grid, domain, *, profile, policy=None, tiling=None, memory):
+    """Construct the reader for the profile selected when the grid was admitted."""
+    reader = (
+        PrefilteredReader
+        if isinstance(profile, PrefilteredKernelProfile)
+        else Interpolator
+    )
+    return reader(
+        grid,
+        domain,
+        profile,
+        ReadPolicy() if policy is None else policy,
+        Tiling() if tiling is None else tiling,
+        memory,
+    )
+
+
+def memory_budget(
+    resident_bytes,
+    shape_yx,
+    *,
+    profile=None,
+    supplied=None,
+    queries=1024,
+    extra_output_bytes=0,
+    extra_resident_bytes=0,
+):
+    """Check admission memory or size a budget for admission and batched reads."""
+    admission = estimate_memory(
+        resident_bytes, shape_yx, Tiling(), 1, admission=True, profile=profile
+    )
+    for key in ("resident", "total"):
+        admission[key] += extra_resident_bytes
+    if supplied is not None:
+        check_memory(supplied, admission)
+        return supplied
+    batch = estimate_memory(
+        resident_bytes, shape_yx, Tiling(), queries, profile=profile
+    )
+    for key in ("resident", "total"):
+        batch[key] += extra_resident_bytes
+    ceilings = {key: max(admission[key], batch[key]) for key in admission}
+    for key in ("output", "total"):
+        ceilings[key] += extra_output_bytes
+    return MemoryBudget(
+        *(int(ceilings[key]) for key in ("resident", "output", "scratch", "total"))
+    )

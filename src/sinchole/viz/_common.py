@@ -4,6 +4,8 @@ import jax
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sinchole.geometry import origin_xy, spacing_xy
+
 
 def single_ax(ax):
     """Resolve one axes, rejecting arrays with an explicit shape error."""
@@ -32,13 +34,13 @@ def query_xy(query):
 def lattice_parts(lattice):
     """Return validated ``(origin, spacing, shape_yx)`` host arrays of a lattice.
 
-    Accepts a Lattice or an ``(origin_xy, spacing_xy, shape_yx)`` tuple.
+    Accepts a PixelGrid or an ``(origin_xy, spacing_xy, shape_yx)`` tuple.
     """
-    if hasattr(lattice, "origin_xy_lod"):
+    if hasattr(lattice, "basis"):
         origin, spacing, shape = (
-            lattice.origin_xy_lod,
-            lattice.spacing_xy_lod,
-            lattice.shape_yx,
+            origin_xy(lattice),
+            spacing_xy(lattice),
+            lattice.shape,
         )
     else:
         origin, spacing, shape = lattice

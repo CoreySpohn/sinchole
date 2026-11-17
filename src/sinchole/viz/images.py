@@ -28,17 +28,17 @@ def _geometry(shape, pixscale_lod, pixels):
     else:
         if pixscale_lod is not None:
             raise ValueError("pass pixels or pixscale_lod, not both")
-        basis = np.asarray(pixels.basis_xy_lod, dtype=float)
-        center = np.asarray(pixels.center_xy_pix, dtype=float)
-        if tuple(pixels.shape_yx) != shape:
-            raise ValueError("pixels.shape_yx must match the image shape")
+        basis = np.asarray(pixels.basis, dtype=float)
+        center = np.asarray((pixels.center_x, pixels.center_y), dtype=float)
+        if tuple(pixels.shape) != shape:
+            raise ValueError("pixels.shape must match the image shape")
         if (
             not np.all(np.isfinite(basis))
             or not np.all(np.isfinite(center))
             or np.any(basis != np.diag(np.diag(basis)))
             or np.any(np.diag(basis) <= 0)
         ):
-            raise ValueError("pixels requires a positive diagonal basis_xy_lod")
+            raise ValueError("pixels requires a positive diagonal basis")
         pitch = np.diag(basis)
     x = (np.arange(shape[1]) - center[0]) * pitch[0]
     y = (np.arange(shape[0]) - center[1]) * pitch[1]

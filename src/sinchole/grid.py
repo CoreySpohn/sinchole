@@ -7,43 +7,23 @@ from dataclasses import replace
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from hwoutils.grids import PixelGrid
 
-from sinchole._types import F64, I32, Boolean, check_array, check_shape, check_static
-from sinchole.domain import in_supported_range, normal_or_zero, safe_query
+from sinchole._types import F64, I32, Boolean, check_array, check_static
+from sinchole.admission import (
+    MIRROR_TOLERANCE,
+    index_reasons,
+    lattice_reasons,
+    offset_evidence,
+    sampling_reasons,
+    spectral_reasons,
+    valid_intensity,
+)
+from sinchole.domain import in_supported_range, safe_query
 from sinchole.evidence import Admission, Reason, Receipt
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.kernel import KernelProfile, PrefilteredKernelProfile
 from sinchole.prefilter import design_grid, design_record, sampling_ratios
-
-
-class Frame(eqx.Module):
-    """Reference angular units: theta_rad=s*lambda_ref_nm*1e-9/diameter_m."""
-
-    reference_wavelength_nm: F64 = eqx.field(converter=jnp.asarray)
-    diameter_m: F64 = eqx.field(converter=jnp.asarray)
-    diameter_convention: str = eqx.field(static=True)
-    coordinate_model: str = eqx.field(static=True, default="paraxial_entrance_tilt")
-
-    def __check_init__(self):
-        """Validate the declared structure before numerical use."""
-        check_static(self)
-        check_array(self.reference_wavelength_nm, (), (jnp.float64,))
-        check_array(self.diameter_m, (), (jnp.float64,))
-
-
-class PixelGrid(eqx.Module):
-    """Fixed detector geometry; basis columns map column and row displacements."""
-
-    shape_yx: tuple[int, int] = eqx.field(static=True)
-    center_xy_pix: F64 = eqx.field(converter=jnp.asarray)
-    basis_xy_lod: F64 = eqx.field(converter=jnp.asarray)
-    measure: str = eqx.field(static=True)
-
-    def __check_init__(self):
-        """Validate the declared structure before numerical use."""
-        check_static(self)
-        check_shape(self.shape_yx)
-        check_array(self.center_xy_pix, (2,), (jnp.float64,))
-        check_array(self.basis_xy_lod, (2, 2), (jnp.float64,))
 
 
 class Normalization(eqx.Module):
@@ -87,7 +67,6 @@ class Premises(eqx.Module):
 class Products(eqx.Module):
     """Exact monochromatic or fixed band-mean products with explicit support."""
 
-    frame: Frame
     pixels: PixelGrid
     normalization: Normalization
     kind: str = eqx.field(static=True)
@@ -102,10 +81,18 @@ class Products(eqx.Module):
     optical_id: str = eqx.field(static=True)
     spectral_weight_id: str = eqx.field(static=True)
     identity: str = eqx.field(static=True)
+    measure: str = eqx.field(static=True, default="per_pixel")
+
+    @property
+    def frame(self):
+        """Reference frame carried by the detector grid."""
+        return self.pixels.frame
 
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
+        if self.pixels.unit != "lod" or self.pixels.frame is None:
+            raise ValueError("Products require a lod grid with a frame")
         count = self.wavelength_nm.size
         if count < 1:
             raise ValueError("At least one product is required")
@@ -123,25 +110,10 @@ class Products(eqx.Module):
             raise ValueError("Support source count differs from product count")
 
 
-class Lattice(eqx.Module):
-    """Authoritative canonical origin, pitch and stored rectangle shape."""
-
-    origin_xy_lod: F64 = eqx.field(converter=jnp.asarray)
-    spacing_xy_lod: F64 = eqx.field(converter=jnp.asarray)
-    shape_yx: tuple[int, int] = eqx.field(static=True)
-
-    def __check_init__(self):
-        """Validate the declared structure before numerical use."""
-        check_static(self)
-        check_shape(self.shape_yx)
-        check_array(self.origin_xy_lod, (2,), (jnp.float64,))
-        check_array(self.spacing_xy_lod, (2,), (jnp.float64,))
-
-
 class Reflection(eqx.Module):
     """Declared two-axis detector flips; admission computes check_passed itself.
 
-    Reflection requires 0 < tolerance <= 1e-6 of the local peak.
+    Reflection requires 0 < tolerance <= MIRROR_TOLERANCE of the local peak.
     Axis evidence records exact native-value identity separately from relative
     residuals. An axis image whose source lies more than 1 lambda/D from every
     pixel center (a halo node beyond the detector frame) has no local peak, so
@@ -158,7 +130,7 @@ class Reflection(eqx.Module):
     check_report_id: str = eqx.field(static=True)
     check_passed: Boolean = eqx.field(converter=jnp.asarray)
     tolerance: F64 = eqx.field(
-        default_factory=lambda: jnp.asarray(1e-6), converter=jnp.asarray
+        default_factory=lambda: jnp.asarray(MIRROR_TOLERANCE), converter=jnp.asarray
     )
 
     def __check_init__(self):
@@ -184,7 +156,7 @@ class SampledGrid(eqx.Module):
     """
 
     intensity: jax.Array
-    source: Lattice
+    source: PixelGrid
     products: Products
     reflection: Reflection
     receipt_id: str = eqx.field(static=True)
@@ -201,7 +173,7 @@ class SampledGrid(eqx.Module):
         count = self.products.wavelength_nm.size
         check_array(
             self.intensity,
-            (count, *self.source.shape_yx, *self.products.pixels.shape_yx),
+            (count, *self.source.shape, *self.products.pixels.shape),
             (jnp.float32, jnp.float64),
         )
         check_array(self.reflection.check_passed, (count,), (jnp.bool_,))
@@ -270,7 +242,7 @@ def _positive(values):
 
 def _metadata_reasons(products, reflection):
     reasons = Reason(0)
-    frame, pixels, norm = products.frame, products.pixels, products.normalization
+    pixels, norm = products.pixels, products.normalization
     premises = products.premises
     if (
         not bool(jnp.all((premises.evidence >= 1) & (premises.evidence <= 2)))
@@ -286,30 +258,27 @@ def _metadata_reasons(products, reflection):
         reasons |= Reason.METADATA_CONFLICT
     if not bool(premises.values[4]):
         reasons |= Reason.NORMALIZATION_UNSUPPORTED
-    if (
-        not _positive(frame.reference_wavelength_nm)
-        or not _positive(frame.diameter_m)
-        or not frame.diameter_convention
-        or frame.coordinate_model != "paraxial_entrance_tilt"
-    ):
-        reasons |= Reason.FRAME_UNSUPPORTED
-    basis = pixels.basis_xy_lod
+    basis = jnp.asarray(pixels.basis)
     norms = jnp.sum(basis * basis, axis=0)
     dot = float(jnp.sum(basis[:, 0] * basis[:, 1]))
     orthogonal = abs(dot) <= 8 * math.ulp(1.0) * math.sqrt(float(jnp.prod(norms)))
     if (
-        not _positive(norms)
+        pixels.unit != "lod"
+        or not _positive(norms)
         or not bool(jnp.all(jnp.isfinite(basis)))
-        or not bool(jnp.all(jnp.isfinite(pixels.center_xy_pix)))
+        or not bool(
+            jnp.all(jnp.isfinite(jnp.asarray((pixels.center_x, pixels.center_y))))
+        )
         or not orthogonal
-        or pixels.measure
-        not in ("pixel_integral", "pixel_mean_density", "point_density")
+        or products.measure not in ("per_pixel", "per_unit_area", "point_density")
     ):
         reasons |= Reason.FRAME_UNSUPPORTED
     if reflection.kind == "two_axis_pixel_flip_v1":
-        expected = jnp.asarray([(n - 1) / 2 for n in pixels.shape_yx[::-1]])
+        expected = jnp.asarray([(n - 1) / 2 for n in pixels.shape[::-1]])
         if (
-            not bool(jnp.all(pixels.center_xy_pix == expected))
+            not bool(
+                jnp.all(jnp.asarray((pixels.center_x, pixels.center_y)) == expected)
+            )
             or float(basis[0, 1]) != 0
             or float(basis[1, 0]) != 0
         ):
@@ -333,69 +302,24 @@ def _metadata_reasons(products, reflection):
         or not all(products.support_source_ids)
     ):
         reasons |= Reason.UNKNOWN_BANDWIDTH
-    if not _positive(products.sampling_min_nm):
-        reasons |= Reason.METADATA_MISSING
-    if products.kind not in ("monochromatic", "band_mean"):
-        reasons |= Reason.METADATA_CONFLICT
-    if (
-        not _positive(products.wavelength_nm)
-        or not _positive(products.limits_nm)
-        or bool(jnp.any(products.limits_nm[:, 0] > products.limits_nm[:, 1]))
-        or bool(jnp.any(products.wavelength_nm < products.limits_nm[:, 0]))
-        or bool(jnp.any(products.wavelength_nm > products.limits_nm[:, 1]))
-        or bool(jnp.any(products.sampling_min_nm > products.wavelength_nm))
+    for wavelength, limits, minimum in zip(
+        products.wavelength_nm.tolist(),
+        products.limits_nm.tolist(),
+        products.sampling_min_nm.tolist(),
+        strict=True,
     ):
-        reasons |= Reason.METADATA_CONFLICT
-    if products.kind == "monochromatic" and not bool(
-        jnp.all(products.limits_nm == products.wavelength_nm[:, None])
-    ):
-        reasons |= Reason.METADATA_CONFLICT
-    campaign = float(products.campaign_sampling_min_nm)
-    if not math.isnan(campaign) and (
-        not math.isfinite(campaign)
-        or campaign <= 0
-        or bool(jnp.any(campaign > products.sampling_min_nm))
-    ):
-        reasons |= Reason.METADATA_CONFLICT
+        reasons |= spectral_reasons(
+            products.kind,
+            wavelength,
+            limits,
+            minimum,
+            float(products.campaign_sampling_min_nm),
+        )
     return reasons
-
-
-def _sampling_reasons(products, spacing, margin_limit):
-    reasons = Reason(0)
-    for _, rho in sampling_ratios(products, spacing):
-        if not rho < 1.0:
-            reasons |= Reason.NYQUIST_FAIL
-        if not rho <= margin_limit:
-            reasons |= Reason.KERNEL_MARGIN_FAIL
-    return reasons
-
-
-def _offset_evidence(offsets, lattice, indices, original_dtype=None):
-    dtype = offsets.dtype if original_dtype is None else jnp.dtype(original_dtype)
-    scale = jnp.maximum(
-        jnp.max(jnp.abs(offsets), axis=0), jnp.abs(lattice.spacing_xy_lod)
-    ).astype(dtype)
-    tau = (4 * (jnp.nextafter(scale, jnp.asarray(jnp.inf, dtype)) - scale)).astype(
-        jnp.float64
-    )
-    # Separate eager operations prevent fused multiply-add canonicalization.
-    displacement = indices.astype(jnp.float64) * lattice.spacing_xy_lod
-    expected = lattice.origin_xy_lod + displacement
-    residual = jnp.max(jnp.abs(offsets.astype(jnp.float64) - expected), axis=0)
-    valid = (
-        bool(jnp.all(jnp.isfinite(offsets)))
-        and bool(jnp.all(residual <= tau))
-        and bool(jnp.all(tau < 1e-4 * jnp.abs(lattice.spacing_xy_lod)))
-    )
-    return valid, tuple(tau.tolist()), tuple(residual.tolist())
 
 
 def _local_peak(image, source, pixels):
-    rows, columns = jnp.indices(pixels.shape_yx, dtype=jnp.float64)
-    displacement = jnp.stack(
-        (columns - pixels.center_xy_pix[0], rows - pixels.center_xy_pix[1])
-    )
-    coordinates = jnp.einsum("ij,jrc->irc", pixels.basis_xy_lod, displacement)
+    coordinates = jnp.asarray(pixels.coordinates())
     selected = jnp.sum((coordinates - source[:, None, None]) ** 2, axis=0) <= 1.0
     return float(jnp.max(jnp.where(selected, image, -jnp.inf)))
 
@@ -417,18 +341,21 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
             )
         )
         and math.isfinite(tolerance)
-        and 0 < tolerance <= 1e-6
+        and 0 < tolerance <= MIRROR_TOLERANCE
     )
     if not declared:
         return Reason.SYMMETRY_UNSUPPORTED, jnp.zeros(count, dtype=bool), (), (), ()
     if checks is None or checks.product_index.size == 0:
         reasons |= Reason.SYMMETRY_CHECK_MISSING
     else:
-        if checks.intensity.shape[1:] != products.pixels.shape_yx:
+        if checks.intensity.shape[1:] != products.pixels.shape:
             raise ValueError("Mirror detector shape differs from samples")
         categories = [set() for _ in range(count)]
-        valid_offsets, _, _ = _offset_evidence(
-            checks.source_xy_lod, lattice, checks.indices_xy
+        valid_offsets, _, _ = offset_evidence(
+            checks.source_xy_lod,
+            origin_xy(lattice),
+            spacing_xy(lattice),
+            checks.indices_xy,
         )
         valid = (
             valid_offsets
@@ -474,7 +401,7 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
             reasons |= Reason.SYMMETRY_CHECK_MISSING
     for product in range(count):
         for axis, size in ((0, cube.shape[1]), (1, cube.shape[2])):
-            chunk = max(1, min(32, 65536 // math.prod(products.pixels.shape_yx)))
+            chunk = max(1, min(32, 65536 // math.prod(products.pixels.shape)))
             for start in range(0, size, chunk):
                 stop = min(size, start + chunk)
                 images = (
@@ -487,7 +414,7 @@ def _symmetry_checks(cube, lattice, products, reflection, checks):
                 source = jnp.stack(
                     (zeros, indices) if axis == 0 else (indices, zeros), axis=1
                 )
-                source = source * lattice.spacing_xy_lod
+                source = source * spacing_xy(lattice)
                 exact, relative = _axis_residuals(images, source, products.pixels, axis)
                 values = relative.tolist()
                 axis_residuals.extend(values)
@@ -517,11 +444,7 @@ def _axis_residuals(images, sources, pixels, axis):
     flipped_bits = bits[:, :, ::-1] if axis == 0 else bits[:, ::-1, :]
     exact = jnp.all(bits == flipped_bits, axis=(1, 2))
     images = images.astype(jnp.float64)
-    rows, columns = jnp.indices(pixels.shape_yx, dtype=jnp.float64)
-    displacement = jnp.stack(
-        (columns - pixels.center_xy_pix[0], rows - pixels.center_xy_pix[1])
-    )
-    coordinates = jnp.einsum("ij,jrc->irc", pixels.basis_xy_lod, displacement)
+    coordinates = jnp.asarray(pixels.coordinates())
     selected = (
         jnp.sum((coordinates[None] - sources[:, :, None, None]) ** 2, axis=1) <= 1.0
     )
@@ -626,7 +549,7 @@ def admit_grid(
         raise ValueError("Nodes require [product, source, row, column]")
     allocations = estimate_memory(
         intensity_nodes.nbytes,
-        products.pixels.shape_yx,
+        products.pixels.shape,
         Tiling(),
         1,
         admission=True,
@@ -655,7 +578,7 @@ def admit_grid(
     count, rows = nodes.shape[:2]
     check_array(
         nodes,
-        (products.wavelength_nm.size, rows, *products.pixels.shape_yx),
+        (products.wavelength_nm.size, rows, *products.pixels.shape),
         (jnp.float32, jnp.float64),
     )
     check_array(offsets, (rows, 2), (jnp.float32, jnp.float64))
@@ -663,23 +586,17 @@ def admit_grid(
     check_array(reflection.check_passed, (count,), (jnp.bool_,))
     reasons = _metadata_reasons(products, reflection)
     lattice = declared_lattice
-    origin, spacing = lattice.origin_xy_lod.tolist(), lattice.spacing_xy_lod.tolist()
-    geometry_valid = all(normal_or_zero(v) for v in origin + spacing) and all(
-        h > 0 for h in spacing
-    )
-    if not geometry_valid:
-        reasons |= Reason.GRID_NONUNIFORM
-    range_valid = all(1e-6 <= h <= 1e6 for h in spacing) and all(
-        v == 0 or 1e-6 <= abs(v) <= 1e6 for v in origin
-    )
-    if not range_valid:
-        reasons |= Reason.LAYOUT_UNSUPPORTED
-    geometry_valid = geometry_valid and range_valid
+    origin, spacing = origin_xy(lattice).tolist(), spacing_xy(lattice).tolist()
+    geometry_reasons = lattice_reasons(origin, spacing, lattice.basis)
+    if lattice.unit != "lod" or lattice.frame != products.frame:
+        geometry_reasons |= Reason.FRAME_UNSUPPORTED
+    reasons |= geometry_reasons
+    geometry_valid = not geometry_reasons
     domain_valid = in_supported_range(domain)
     if not domain_valid:
         reasons |= Reason.METADATA_CONFLICT
     reflected = reflection.kind == "two_axis_pixel_flip_v1"
-    if not 0 < float(reflection.tolerance) <= 1e-6:
+    if not 0 < float(reflection.tolerance) <= MIRROR_TOLERANCE:
         reasons |= Reason.SYMMETRY_UNSUPPORTED
     if reflection.kind not in ("none", "two_axis_pixel_flip_v1"):
         reasons |= Reason.LAYOUT_UNSUPPORTED | Reason.SYMMETRY_UNSUPPORTED
@@ -687,47 +604,31 @@ def admit_grid(
         reasons |= Reason.GRID_NONUNIFORM
     if not reflected and (bool(jnp.any(reflection.axes)) or mirror_checks is not None):
         reasons |= Reason.SYMMETRY_UNSUPPORTED
-    sy, sx = lattice.shape_yx
+    sy, sx = lattice.shape
     # Numerical buffers keep occupancy validation bounded by the delivery size.
     # Never allocate the declared rectangle when its size exceeds delivered rows.
     linear = indices[:, 1].astype(jnp.int64) * sx + indices[:, 0]
-    in_range = bool(jnp.all((indices >= 0) & (indices < jnp.array([sx, sy]))))
-    if in_range and rows == sx * sy:
-        occupancy = jnp.bincount(linear, length=sx * sy)
-        duplicate = bool(jnp.any(occupancy > 1))
-        complete = bool(jnp.all(occupancy == 1))
-    else:
-        # Out-of-range pairs need lexicographic keys to avoid linear collisions.
-        keys = (indices[:, 1].astype(jnp.int64) << 32) + indices[:, 0]
-        ordered = jnp.sort(keys)
-        duplicate = bool(jnp.any(ordered[1:] == ordered[:-1]))
-        complete = False
-    if duplicate:
-        reasons |= Reason.GRID_DUPLICATE
-    if not complete:
-        reasons |= Reason.GRID_INCOMPLETE
+    reasons |= index_reasons(indices, lattice.shape)
     if min(sy, sx) < profile.minimum_size(reflected):
         reasons |= Reason.INCOMPLETE_STENCIL
     tau, residual = (), ()
     if rows and geometry_valid:
-        uniform, tau, residual = _offset_evidence(
-            offsets, lattice, indices, offset_dtype
+        uniform, tau, residual = offset_evidence(
+            offsets, origin_xy(lattice), spacing_xy(lattice), indices, offset_dtype
         )
         if not uniform:
             reasons |= Reason.GRID_NONUNIFORM
-        reasons |= _sampling_reasons(products, spacing, profile.margin_limit)
+        reasons |= sampling_reasons(
+            (rho for _, rho in sampling_ratios(products, spacing)), profile
+        )
     flat_nodes = nodes.reshape(-1)
     for start in range(0, flat_nodes.size, 65536):
         block = flat_nodes[start : start + 65536]
-        integer = jnp.int32 if block.dtype == jnp.float32 else jnp.int64
-        bits = jax.lax.bitcast_convert_type(block, integer)
-        magnitude_mask = jnp.iinfo(integer).max
-        negative = (bits < 0) & ((bits & magnitude_mask) != 0)
-        if not bool(jnp.all(jnp.isfinite(block) & ~negative)):
+        if not valid_intensity(block):
             reasons |= Reason.DATA_INVALID
     allocations = estimate_memory(
         nodes.nbytes,
-        products.pixels.shape_yx,
+        products.pixels.shape,
         Tiling(),
         1,
         admission=True,
@@ -789,7 +690,7 @@ def admit_grid(
         designs = design_grid(profile, products, lattice, reflected, domain)
         receipt = replace(receipt, kernel_design=design_record(designs))
     order = jnp.argsort(linear)
-    cube = nodes[:, order].reshape(count, sy, sx, *products.pixels.shape_yx)
+    cube = nodes[:, order].reshape(count, sy, sx, *products.pixels.shape)
     if reflected:
         symmetry_reasons, passed, mirror, axes, exact = _symmetry_checks(
             cube, lattice, products, reflection, mirror_checks
@@ -827,7 +728,7 @@ def admit_grid(
         cube, lattice, products, reflection, identity, profile_id=profile.identity
     )
     if checks is not None:
-        if checks.intensity.shape[1:] != products.pixels.shape_yx:
+        if checks.intensity.shape[1:] != products.pixels.shape:
             raise ValueError("Check detector shape differs from samples")
         valid = (
             checks.product_index.size > 0

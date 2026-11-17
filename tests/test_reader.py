@@ -10,6 +10,7 @@ import pytest
 from conftest import analytic, delivery, make_reader
 
 import sinchole as sc
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.kernel import stencil
 
 compiled_read = eqx.filter_jit(lambda reader, q, p: reader.read(q, p))
@@ -80,19 +81,19 @@ def test_folded_full_and_modes(full_reader, quadrant_reader, queries):
             )
         taps, _ = stencil(
             q,
-            quadrant_reader.grid.source.origin_xy_lod,
-            quadrant_reader.grid.source.spacing_xy_lod,
+            origin_xy(quadrant_reader.grid.source),
+            spacing_xy(quadrant_reader.grid.source),
         )
         compiled_taps, _ = eqx.filter_jit(stencil)(
             q,
-            quadrant_reader.grid.source.origin_xy_lod,
-            quadrant_reader.grid.source.spacing_xy_lod,
+            origin_xy(quadrant_reader.grid.source),
+            spacing_xy(quadrant_reader.grid.source),
         )
         np.testing.assert_array_equal(taps, compiled_taps)
         full_taps, full_weights = stencil(
             q,
-            full_reader.grid.source.origin_xy_lod,
-            full_reader.grid.source.spacing_xy_lod,
+            origin_xy(full_reader.grid.source),
+            spacing_xy(full_reader.grid.source),
         )
         samples = full_reader.grid.intensity[
             0, full_taps[1, :, None], full_taps[0, None, :]

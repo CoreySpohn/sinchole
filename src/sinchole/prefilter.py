@@ -30,7 +30,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from sinchole.admission import sampling_ratio
 from sinchole.evidence import PrecisionUnavailable
+from sinchole.geometry import origin_xy, spacing_xy
 from sinchole.kernel import PREFILTER_HALO, bump
 
 # Trial shapes: beta = factor * pi * taps * (1 - band).
@@ -316,9 +318,7 @@ def sampling_ratios(products, spacing):
                 continue
             for axis, (extent, pitch) in enumerate(zip(extents, spacing, strict=True)):
                 # Python binary64 operations preserve the declared separate rounding.
-                sigma = reference / value
-                bandwidth = sigma * extent
-                yield axis, (2.0 * bandwidth) * pitch
+                yield axis, sampling_ratio(reference, value, extent, pitch)
 
 
 def design_band(products, spacing):
@@ -341,8 +341,8 @@ def served_cells(domain, lattice):
     range, decides which reads are served; the range only keeps unreachable
     table ends out of the recorded design figures.
     """
-    origin = lattice.origin_xy_lod.tolist()
-    spacing = lattice.spacing_xy_lod.tolist()
+    origin = origin_xy(lattice).tolist()
+    spacing = spacing_xy(lattice).tolist()
     if domain.kind == "box":
         limits = domain.limits_xy_lod.tolist()
     else:
@@ -359,9 +359,9 @@ def served_cells(domain, lattice):
 
 def design_grid(profile, products, lattice, reflected, domain=None):
     """Return the (x, y) AxisDesign pair for an admitted lattice and profile."""
-    spacing = lattice.spacing_xy_lod.tolist()
+    spacing = spacing_xy(lattice).tolist()
     band = design_band(products, spacing)
-    sy, sx = lattice.shape_yx
+    sy, sx = lattice.shape
     cells = (None, None) if domain is None else served_cells(domain, lattice)
     return tuple(
         design_axis(
