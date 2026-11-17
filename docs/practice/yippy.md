@@ -129,8 +129,8 @@ jax.config.update("jax_enable_x64", True)
 from yippy import Coronagraph
 
 coro = Coronagraph("path/to/delivery", interpolation="sinc")
-image = coro.create_psf(4.0, 5.5)  # planet at (4.0, 5.5) lambda0/D
-image, info = coro.create_psf_with_info(4.0, 5.5)
+image = coro.source_psfs(None, [4.0], [5.5], grid=None)  # planet at (4.0, 5.5) lambda0/D
+read = coro.source_psfs_with_info([4.0], [5.5])
 print(coro.interpolation_info.effective)  # "sinc"
 print(coro.interpolation_info.receipt_id)  # the admission receipt identity
 ```
