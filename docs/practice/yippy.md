@@ -26,8 +26,7 @@ order, and the close fills in the answers.
 :::
 
 :::{note}
-The sinchole backend for yippy is optional and lives behind yippy's `sinc`
-extra (`pip install "yippy[sinc]"`). Enable JAX 64-bit mode before
+Installing yippy includes sinchole. Enable JAX 64-bit mode before
 constructing a `Coronagraph` with sinc reads.
 :::
 
@@ -108,7 +107,7 @@ argument, so it has no interior check images, and the starter has
 
 `"sinc"`
 : Strict sinchole reads. The constructor raises if the delivery is not a
-  versioned sinc delivery, if the sinchole extra is missing, if JAX 64-bit
+  versioned sinc delivery, if JAX 64-bit
   mode is off, or if admission refuses the grid.
 
 `"auto"`
@@ -126,11 +125,10 @@ import jax
 
 jax.config.update("jax_enable_x64", True)
 
-from yippy import Coronagraph
+from yippy import open_yip
 
-coro = Coronagraph("path/to/delivery", interpolation="sinc")
-image = coro.source_psfs(None, [4.0], [5.5], grid=None)  # planet at (4.0, 5.5) lambda0/D
-read = coro.source_psfs_with_info([4.0], [5.5])
+coro = open_yip("path/to/delivery").prepare(interpolation="sinc")
+image, valid = coro.source_psfs(None, [4.0], [5.5], grid=None)  # planet at (4.0, 5.5) lambda0/D
 print(coro.interpolation_info.effective)  # "sinc"
 print(coro.interpolation_info.receipt_id)  # the admission receipt identity
 ```
@@ -173,7 +171,7 @@ flowchart TD
     B -- "yes, and it must be checkable" --> D["Request a sinc delivery<br/>from the designer"]
     D --> E["Designer plans positions with yippy-sinc plan<br/>and propagates the complete rectangle"]
     E --> F["Designer validates with yippy-sinc validate<br/>and sends the directory"]
-    F --> G["Coronagraph(path, interpolation='sinc')"]
+    F --> G["open_yip(path).prepare(interpolation='sinc')"]
 ```
 
 A YIP cannot be promoted by editing its files. A sinc delivery needs a
@@ -186,7 +184,7 @@ the manifest key `legacy_package_path`.
 
 ## Why does `Coronagraph` need the stellar products?
 
-`Coronagraph(path, interpolation="sinc")` builds the whole coronagraph
+`open_yip(path).prepare(interpolation="sinc")` builds the whole coronagraph
 object, and the object also serves the stellar intensity and the sky
 transmission, which sinchole does not read. They come from the legacy
 products (`stellar_intens.fits` and the others of a YIP package) in
@@ -251,7 +249,7 @@ starter's served cell.
 This example needs a delivery on disk.
 
 ```python notest
-from yippy.interpolation import SincOptions
+from yippy import open_yip, SincOptions
 import sinchole as sc
 import jax.numpy as jnp
 
@@ -261,7 +259,9 @@ options = SincOptions(
         "box", "closed", jnp.array([[3.85, 5.35], [4.1, 5.65]]), jnp.zeros(2)
     ),
 )
-coro = Coronagraph("path/to/delivery", interpolation="sinc", sinc_options=options)
+coro = open_yip("path/to/delivery", product_id="mono-000").prepare(
+    interpolation="sinc", sinc_options=options
+)
 ```
 
 A caller domain may narrow the delivery's served region and never widen it.

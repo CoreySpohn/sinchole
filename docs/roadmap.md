@@ -22,8 +22,8 @@ complete signed rectangle or a positive quadrant with a declared and checked
 two-axis mirror symmetry. Admission checks the geometry, the declared physical
 premises, the sampling limit and the memory budget. Every read either returns an
 image with an unknown error bound or refuses with a reason. Reads run in JAX on
-CPU, under `eqx.filter_jit` and `jax.vmap`, and yippy can use sinchole as an
-optional backend for its `Coronagraph`.
+CPU, under `eqx.filter_jit` and `jax.vmap`, and yippy can use sinchole as a
+sampled-intensity backend for its `Coronagraph`.
 
 A second profile reads from 5 to 10 filtered images per axis instead of 32
 delivered ones, on grids sampled at $\rho\le0.64$, and renders scenes of many
@@ -40,8 +40,7 @@ unqualified.
 ## Next (aspirational): broader qualification
 
 - **Release hardening (done).** Version 0.1.0 is on PyPI, continuous
-  integration tests the lowest supported dependency versions, and the yippy
-  backend stays optional.
+  integration tests the lowest supported dependency versions, and yippy installs sinchole for sampled-intensity reads.
 - **More cells and designs.** Qualify additional cells of the APLC grid and
   other coronagraph families, such as hybrid Lyot and vortex designs, against
   independent propagations. The comparison method on {doc}`validation`

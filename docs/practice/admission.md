@@ -248,7 +248,7 @@ R = {
     "PRODUCT_UNAVAILABLE": ("read", "The product index is not in the delivery", "Use an index the delivery has"),
     "BOUND_UNKNOWN": ("read", "No error bound exists. Version 0.1 sets it on every read, accepted or not, and a bounded policy refuses because of it", "Nothing to fix in a sampling read; bounded reads need a future error model"),
     "TOLERANCE_EXCEEDED": ("reserved", "Defined, and set by neither sinchole nor yippy in version 0.1", "None"),
-    "EXTRA_MISSING": ("reserved", "Set by yippy when the sinchole extra is not installed, never by sinchole", "Install `yippy[sinc]`"),
+    "EXTRA_MISSING": ("reserved", "Reserved for an unavailable optional reader", "None"),
     "FALLBACK_USED": ("reserved", "Set by yippy when a read fell back to blend, never by sinchole", "Informational"),
     "EMPIRICAL_ONLY": ("read", "The only accuracy evidence is the finite set of empirical checks. Set whenever checks exist", "Informational"),
     "SYMMETRY_CHECK_FAILED": ("admission", "A mirror or axis residual exceeds its tolerance (at most $10^{-6}$) of the local peak", "The optics are not mirror symmetric at that level, so deliver a full signed grid"),

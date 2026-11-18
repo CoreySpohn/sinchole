@@ -155,6 +155,24 @@ class SceneRenderer(eqx.Module):
             rows, pixels
         )
 
+    @classmethod
+    def from_raster(cls, reader, product_index, x_lod, y_lod):
+        """Gather the covered, permitted centers of a fixed raster.
+
+        Unsupported centers may stay dark during a render. If no center is
+        supported, one covered stencil suffices to represent the all-dark image.
+        """
+        x_lod, y_lod = jnp.asarray(x_lod), jnp.asarray(y_lod)
+        if x_lod.ndim != 1 or y_lod.ndim != 1 or not x_lod.size or not y_lod.size:
+            raise ValueError("Raster axes must be nonempty coordinate vectors")
+        x, y = jnp.meshgrid(x_lod, y_lod, indexing="xy")
+        centers = jnp.stack((x.ravel(), y.ravel()), axis=1)
+        readable = jax.vmap(lambda q: reader._validate(q, product_index)[1])(centers)
+        positions = centers[readable]
+        if not positions.shape[0]:
+            positions = reader._safe_query[None, :]
+        return cls(reader, product_index, positions, margin_nodes=0)
+
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)

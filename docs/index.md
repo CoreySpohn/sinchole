@@ -288,8 +288,7 @@ pip install sinchole
 ```
 
 installs the library. Add the plotting module `sinchole.viz` with
-`pip install "sinchole[viz]"`, and install yippy with sinchole as its sinc
-backend with `pip install "yippy[sinc]"`.
+`pip install "sinchole[viz]"`, and install yippy with `pip install yippy`.
 
 Enable JAX 64-bit mode (`jax.config.update("jax_enable_x64", True)`) before
 creating arrays or readers.

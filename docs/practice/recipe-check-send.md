@@ -41,14 +41,14 @@ def tex(value, digits=2):
 (recipe-check)=
 ## Step 6: How do you check the files before sending?
 
-Install the yippy extra and run the validator on the delivery directory.
+Install yippy and run the validator on the delivery directory.
 It runs the yippy integrity checks, then sinchole admission with 64-bit
 arithmetic, and it exits with 0 on a pass, 1 on a failure and 2 on a usage
 error. The starter delivery is not on disk here, so the commands are shown and
 not run.
 
 ```bash
-pip install "yippy[sinc]"
+pip install yippy
 yippy-sinc validate path/to/delivery
 yippy-sinc validate path/to/delivery --product mono-000 --json
 ```
@@ -170,7 +170,7 @@ request asks for. The layout and every key are on the [schema page][schema].
 Two further items belong with the files.
 
 - The stellar and sky products, in the legacy YIP layout, in the directory
-  named by `legacy_package_path`. `Coronagraph(path, interpolation="sinc")`
+  named by `legacy_package_path`. `open_yip(path).prepare(interpolation="sinc")`
   needs them, so a delivery meant for direct use must include them. The
   starter holds none, and that is why it is read through the router.
 - The validator summary, any failed checks reported as failed, and the

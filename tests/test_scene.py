@@ -74,7 +74,7 @@ def test_raster_equals_points_and_summed_reads(case):
     scene = scene.at[1, 2].set(0.0)
     grid_x, grid_y = jnp.meshgrid(x, y)
     centers = jnp.stack([grid_x.ravel(), grid_y.ravel()], axis=1)
-    renderer = sc.SceneRenderer(reader, 0, centers, margin_nodes=0)
+    renderer = sc.SceneRenderer.from_raster(reader, 0, x, y)
     raster = render_raster(renderer, scene, x, y)
     points = renderer.render_points(centers, scene.ravel())
     expected = brute(reader, centers, scene.ravel())
@@ -148,6 +148,13 @@ def test_refusals_padding_and_margin(tone_quadrant):
     )
     dark = patch.render_raster(jnp.zeros((3, 3)), x + 1.2, y)
     assert bool(dark.accepted)
+    # Gather a raster crossing the permission boundary; only lit pixels matter.
+    mixed_x = jnp.array([0.0, 3.0])
+    mixed = sc.SceneRenderer.from_raster(reader, 0, mixed_x, y)
+    padded = jnp.ones((3, 2)).at[:, 1].set(0.0)
+    good = render_raster(mixed, padded, mixed_x, y)
+    assert good.accepted and jnp.isfinite(good.intensity).all()
+    assert not render_raster(mixed, padded.at[0, 1].set(1.0), mixed_x, y).accepted
     bounded = eqx.tree_at(
         lambda r: r.reader.policy, renderer, sc.ReadPolicy("bounded", jnp.array(1.0))
     )
