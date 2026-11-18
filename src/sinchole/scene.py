@@ -101,7 +101,7 @@ class SceneRenderer(eqx.Module):
         readable = jax.vmap(lambda q: reader._validate(q, product)[1])(positions)
         if not bool(jnp.all(readable)):
             raise ValueError("Scene positions must be finite, permitted and covered")
-        taps = jax.vmap(lambda q: reader.stencil(flush_subnormal(q))[0])(positions)
+        taps = jax.vmap(lambda q: reader.stencil(flush_subnormal(q)).nodes)(positions)
         # Nodes that some covered read can use, as signed (low, high) per axis.
         size = reader.grid.source.shape[::-1]
         halo = reader.profile.halo
@@ -310,7 +310,8 @@ class SceneRenderer(eqx.Module):
         )(clean)
         readable = finite & member & covered
         safe = jnp.where(readable[:, None], clean, reader._safe_query)
-        node, weight = jax.vmap(reader.stencil)(safe)
+        stencil = jax.vmap(reader.stencil)(safe)
+        node, weight = stencil.nodes, stencil.weights
         index_x = node[:, 0, None, :] - self._corner_xy[0]
         index_y = node[:, 1, :, None] - self._corner_xy[1]
         span_y, span_x = self.lookup.shape
@@ -401,9 +402,10 @@ class SceneRenderer(eqx.Module):
             )
         ):
             values = jnp.where(ok, clean, safe[axis])
-            node, weight = jax.vmap(
-                lambda v, a=axis: reader.stencil(safe.at[a].set(v))
-            )(values)
+            stencil = jax.vmap(lambda v, a=axis: reader.stencil(safe.at[a].set(v)))(
+                values
+            )
+            node, weight = stencil.nodes, stencil.weights
             index = node[:, axis, :] - self._corner_xy[axis]
             column = jnp.where((index >= 0) & (index < span), index, span)
             matrix = jnp.zeros((values.shape[0], span + 1))

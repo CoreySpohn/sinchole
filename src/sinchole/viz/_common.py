@@ -1,10 +1,12 @@
 """Shared axes and precision validation at the plotting boundary."""
 
 import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
 from sinchole.geometry import origin_xy, spacing_xy
+from sinchole.kernel import AbstractKernelProfile, read_stencil
 
 
 def single_ax(ax):
@@ -60,3 +62,42 @@ def lattice_parts(lattice):
             "lattice needs finite origin, positive spacing, and integer shape_yx"
         )
     return origin, spacing, shape
+
+
+def stencil_reader(reader):
+    """Return ``(origin, spacing, shape_yx, reflected, at)`` of a reader's lattice.
+
+    ``at(query_xy)`` returns the reader's own stencil as host arrays
+    ``(nodes, weights, valid)``, each [2, taps].
+    """
+    origin, spacing, shape = lattice_parts(reader.grid.source)
+
+    def at(query):
+        found = reader.stencil(jnp.asarray(query, dtype=jnp.float64))
+        return tuple(np.asarray(a) for a in (found.nodes, found.weights, found.valid))
+
+    return origin, spacing, shape, reader.grid.reflection.kind != "none", at
+
+
+def stencil_profile(profile, origin, spacing, size_xy, reflected):
+    """Return ``at(query_xy)`` for the stencil of an explicit kernel profile.
+
+    A prefiltered profile needs the weights of its designed band, which only a
+    reader carries, so it is refused here.
+    """
+    if not isinstance(profile, AbstractKernelProfile):
+        raise TypeError("profile must be a kernel profile; or pass a reader")
+    origin, spacing = jnp.asarray(origin), jnp.asarray(spacing)
+
+    def at(query):
+        found = read_stencil(
+            profile,
+            jnp.asarray(query, dtype=jnp.float64),
+            origin,
+            spacing,
+            size_xy,
+            reflected,
+        )
+        return tuple(np.asarray(a) for a in (found.nodes, found.weights, found.valid))
+
+    return at

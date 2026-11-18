@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from sinchole._types import check_static
+from sinchole._types import Boolean, check_static
 
 # Stored nodes a prefiltered read needs beyond its outermost tap on each side.
 PREFILTER_HALO = 6
@@ -267,3 +267,51 @@ def bump_stencil(query, origin, spacing, profile, beta, scale):
     phase = (query - origin) / spacing
     value = bump(phase[:, None] - taps, profile.taps, beta[:, None])
     return taps, value / scale[:, None]
+
+
+class Stencil(eqx.Module):
+    """The taps of one read: per-axis nodes, weights and storage validity.
+
+    All three arrays are [2, taps], x axis first. ``nodes`` are signed int64
+    node indices, ``weights`` the float64 one-dimensional weights (a read
+    weights the node pair (i, j) by ``weights[0, i] * weights[1, j]``), and
+    ``valid`` marks nodes a table can serve: inside the stored extent, or with
+    reflection inside it after taking the absolute index.
+    """
+
+    nodes: jax.Array
+    weights: jax.Array
+    valid: Boolean
+
+
+def read_stencil(
+    profile,
+    query,
+    origin,
+    spacing,
+    size=None,
+    reflected=False,
+    beta=None,
+    scale=None,
+):
+    """Return the Stencil a read of ``profile`` uses at a prevalidated query.
+
+    This is the one implementation of tap selection and weights: readers
+    contract their tables with it and plots draw it. ``size`` is the stored
+    node count per axis (x first); None marks every node valid. A prefiltered
+    profile also needs the ``beta`` and ``scale`` of its designed band.
+    """
+    if isinstance(profile, PrefilteredKernelProfile):
+        if beta is None or scale is None:
+            raise ValueError(
+                "A prefiltered stencil needs the beta and scale of its design"
+            )
+        nodes, weights_ = bump_stencil(query, origin, spacing, profile, beta, scale)
+    else:
+        nodes, weights_ = stencil(query, origin, spacing)
+    if size is None:
+        valid = jnp.ones(nodes.shape, dtype=bool)
+    else:
+        reach = jnp.abs(nodes) if reflected else nodes
+        valid = (reach >= 0) & (reach < jnp.asarray(size)[:, None])
+    return Stencil(nodes, weights_, valid)

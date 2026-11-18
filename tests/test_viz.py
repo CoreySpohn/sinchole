@@ -19,7 +19,7 @@ import numpy as np
 
 import sinchole as sc
 from sinchole import viz
-from sinchole.kernel import stencil
+from sinchole.kernel import KernelProfile, stencil
 
 # tol_colors builds its palettes with Matplotlib's pending-deprecated set_bad;
 # eyepiece's suite uses the same narrow upstream compatibility filter.
@@ -39,9 +39,9 @@ def _call(name, ax=None):
     image = np.arange(1.0, 49.0).reshape(6, 8)
     calls = {
         "plot_kernel": lambda: viz.plot_kernel(ax=ax),
-        "plot_stencil": lambda: viz.plot_stencil(0.3, ax=ax),
+        "plot_stencil": lambda: viz.plot_stencil(0.3, profile=KernelProfile(), ax=ax),
         "plot_stencil_2d": lambda: viz.plot_stencil_2d(
-            (0.3, 0.4), ((0, 0), (0.5, 0.5), (40, 40)), ax=ax
+            (0.3, 0.4), ((0, 0), (0.5, 0.5), (40, 40)), profile=KernelProfile(), ax=ax
         ),
         "plot_spacing_rule": lambda: viz.plot_spacing_rule(ax=ax),
         "plot_coverage": lambda: viz.plot_coverage(
@@ -123,7 +123,12 @@ def test_routed_color_aliases_override_defaults():
 
 def test_stencil_known_answer_and_update():
     result = viz.plot_stencil(
-        0.3, origin=-2.0, spacing=0.25, n_nodes=40, samples=np.arange(40.0)
+        0.3,
+        profile=KernelProfile(),
+        origin=-2.0,
+        spacing=0.25,
+        n_nodes=40,
+        samples=np.arange(40.0),
     )
     stems = result.artists["collection"]
     artists = list(result.ax.get_children())
@@ -135,7 +140,12 @@ def test_stencil_known_answer_and_update():
         np.testing.assert_allclose(segments[:, 1, 1], weights[0], atol=1e-15)
         np.testing.assert_allclose(np.sum(segments[:, 1, 1]), 1.0, atol=1e-5)
         fresh = viz.plot_stencil(
-            query, origin=-2.0, spacing=0.25, n_nodes=40, samples=np.arange(40.0)
+            query,
+            profile=KernelProfile(),
+            origin=-2.0,
+            spacing=0.25,
+            n_nodes=40,
+            samples=np.arange(40.0),
         )
         np.testing.assert_allclose(segments, fresh.artists["collection"].get_segments())
         for current, expected in zip(
@@ -155,11 +165,11 @@ def test_stencil_known_answer_and_update():
 def test_stencil_requires_x64():
     with jax.enable_x64(False):
         with pytest.raises(ValueError, match="jax_enable_x64"):
-            viz.plot_stencil(0.0)
+            viz.plot_stencil(0.0, profile=KernelProfile())
 
 
 def test_stencil_callable_samples():
-    result = viz.plot_stencil(2.5, samples=lambda x: x**2)
+    result = viz.plot_stencil(2.5, profile=KernelProfile(), samples=lambda x: x**2)
     points = result.artists["scatter"][-1].get_offsets()
     np.testing.assert_allclose(points[:, 1], points[:, 0] ** 2)
 
@@ -390,7 +400,9 @@ def _taps_2d(result):
 def test_stencil_2d_areas_are_the_separable_weights():
     lattice = ((0.0, 0.0), (0.25, 0.5), (60, 40))
     query = (3.3, 6.1)
-    result = viz.plot_stencil_2d(query, lattice, max_area=100.0)
+    result = viz.plot_stencil_2d(
+        query, lattice, profile=KernelProfile(), max_area=100.0
+    )
     offsets, areas = _taps_2d(result)
     assert len(offsets) == 1024
     tx, wx = stencil(jnp.asarray([query[0]]), 0.0, 0.25)
@@ -408,7 +420,12 @@ def test_stencil_2d_areas_are_the_separable_weights():
 def test_stencil_2d_weight_order_counts_largest_first():
     lattice = ((0.0, 0.0), (0.25, 0.25), (60, 60))
     result = viz.plot_stencil_2d(
-        (3.3, 4.1), lattice, order="weight", n_taps=0, max_area=1.0
+        (3.3, 4.1),
+        lattice,
+        profile=KernelProfile(),
+        order="weight",
+        n_taps=0,
+        max_area=1.0,
     )
     assert len(_taps_2d(result)[0]) == 0
     result.update(n_taps=10)
@@ -424,7 +441,9 @@ def test_stencil_2d_weight_order_counts_largest_first():
 
 def test_stencil_2d_quadrant_fold_and_update():
     lattice = ((0.0, 0.0), (0.5, 0.5), (31, 31))
-    result = viz.plot_stencil_2d((0.7, 4.0), lattice, quadrant=True)
+    result = viz.plot_stencil_2d(
+        (0.7, 4.0), lattice, profile=KernelProfile(), quadrant=True
+    )
     signed, _ = _taps_2d(result)
     assert signed[:, 0].min() < 0
     face = np.asarray(result.artists["scatter"][-2].get_facecolors())
@@ -435,16 +454,30 @@ def test_stencil_2d_quadrant_fold_and_update():
     np.testing.assert_allclose(folded[:, 0], np.abs(signed[:, 0]))
     np.testing.assert_allclose(folded[:, 1], np.abs(signed[:, 1]))
     result.update((-0.7, 4.0), fold=0.0)
-    fresh = viz.plot_stencil_2d((-0.7, 4.0), lattice, quadrant=True)
+    fresh = viz.plot_stencil_2d(
+        (-0.7, 4.0), lattice, profile=KernelProfile(), quadrant=True
+    )
     np.testing.assert_allclose(_taps_2d(result)[0], _taps_2d(fresh)[0])
     with pytest.raises(ValueError, match="fold"):
-        viz.plot_stencil_2d((0.0, 0.0), ((-5, -5), (1, 1), (40, 40)), fold=0.5)
+        viz.plot_stencil_2d(
+            (0.0, 0.0),
+            ((-5, -5), (1, 1), (40, 40)),
+            profile=KernelProfile(),
+            fold=0.5,
+        )
     with pytest.raises(ValueError, match="quadrant"):
-        viz.plot_stencil_2d((0.0, 0.0), ((-5, -5), (1, 1), (40, 40)), quadrant=True)
+        viz.plot_stencil_2d(
+            (0.0, 0.0),
+            ((-5, -5), (1, 1), (40, 40)),
+            profile=KernelProfile(),
+            quadrant=True,
+        )
 
 
 def test_stencil_2d_marks_taps_outside_storage_hollow():
-    result = viz.plot_stencil_2d((1.0, 1.0), ((0.0, 0.0), (0.5, 0.5), (40, 40)))
+    result = viz.plot_stencil_2d(
+        (1.0, 1.0), ((0.0, 0.0), (0.5, 0.5), (40, 40)), profile=KernelProfile()
+    )
     face = np.asarray(result.artists["scatter"][-2].get_facecolors())
     offsets, _ = _taps_2d(result)
     outside = (offsets < 0).any(axis=1)
@@ -478,3 +511,34 @@ def test_spacing_rule_reads_products_and_lattice(quadrant_delivery):
         viz.plot_spacing_rule(support_width=-1.0)
     with pytest.raises(ValueError, match="margin"):
         viz.plot_spacing_rule(margin=1.5)
+
+
+def test_stencil_viz_draws_the_reader_profile(full_reader, tone_full):
+    prefiltered = tone_full["reader"]
+    """The drawn taps follow the reader's own profile, not a fixed tap count."""
+    query = (0.31, -0.17)
+    for reader in (full_reader, prefiltered):
+        found = reader.stencil(jnp.asarray(query))
+        count = reader.profile.taps
+        result = viz.plot_stencil_2d(query, reader, max_area=100.0)
+        offsets, areas = _taps_2d(result)
+        assert len(offsets) == count**2
+        expected = np.outer(np.asarray(found.weights[1]), np.asarray(found.weights[0]))
+        np.testing.assert_allclose(areas, 100.0 * np.abs(expected).ravel())
+        line = viz.plot_stencil(query[0], reader=reader, axis=0)
+        segments = np.asarray(line.artists["collection"].get_segments())
+        assert len(segments) == count
+        np.testing.assert_allclose(segments[:, 1, 1], found.weights[0], atol=1e-15)
+    assert prefiltered.profile.taps != full_reader.profile.taps
+
+
+def test_stencil_viz_source_arguments(tone_full):
+    lattice = ((0.0, 0.0), (0.5, 0.5), (40, 40))
+    with pytest.raises(ValueError, match="needs a profile"):
+        viz.plot_stencil_2d((0.0, 0.0), lattice)
+    with pytest.raises(ValueError, match="supplies its own"):
+        viz.plot_stencil_2d((0.0, 0.0), tone_full["reader"], profile=KernelProfile())
+    with pytest.raises(ValueError, match="needs the beta and scale"):
+        viz.plot_stencil_2d((0.0, 0.0), lattice, profile=sc.PrefilteredKernelProfile())
+    with pytest.raises(ValueError, match="exactly one"):
+        viz.plot_stencil(0.0)

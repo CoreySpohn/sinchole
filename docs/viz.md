@@ -36,6 +36,7 @@ import numpy as np
 
 import sinchole as sc
 from sinchole import viz
+from sinchole.kernel import KernelProfile
 import toy_coronagraph as tc
 
 jax.config.update("jax_enable_x64", True)
@@ -56,7 +57,7 @@ plt.show()
 
 ## `plot_stencil`
 
-One axis of a read: the 32 stencil taps and their weights at a query
+One axis of a read: the stencil taps of the profile you pass (or of a reader) and their weights at a query
 ({doc}`foundations/sinc-interpolation`), here on a grid of 30 stored nodes. Look at
 the hollow stems: they are taps at node indices below zero, before the first
 stored node, and a read with such taps is refused unless the grid is a quadrant
@@ -64,15 +65,16 @@ that reads them by mirror symmetry.
 
 ```{code-cell} python
 fig, ax = plt.subplots(figsize=(7, 2.4), constrained_layout=True)
-result = viz.plot_stencil(3.3, origin=0.0, spacing=1.0, n_nodes=30, ax=ax)
+result = viz.plot_stencil(3.3, profile=KernelProfile(), origin=0.0, spacing=1.0,
+                         n_nodes=30, ax=ax)
 plt.show()
 ```
 
 ## `plot_stencil_2d`
 
-The 1024 taps of one read over the node lattice (the 32 by 32 block of the
-stencil in two dimensions), marker area proportional to the weight and color for
-its sign. Look at the few large markers near the query: most of the 1024 taps
+The taps of one read over the node lattice (the 32 by 32 block of the raw
+stencil in two dimensions; pass a reader to draw the stencil it reads with), marker area proportional to the weight and color for
+its sign. Look at the few large markers near the query: most of the taps
 are too small to see. Taps are counted largest first with `order="weight"`.
 `n_taps` sets how many are counted, and `fold` (quadrant lattices only, 0 to 1)
 slides each tap that lies at a negative node onto the stored node it reads
@@ -82,7 +84,8 @@ no delivery, only a lattice.
 ```{code-cell} python
 fig, ax = plt.subplots(figsize=(5, 5), constrained_layout=True)
 result = viz.plot_stencil_2d((1.0, 2.0), ((0.0, 0.0), (0.38, 0.38), (31, 31)),
-                             quadrant=True, order="weight", n_taps=200,
+                             profile=KernelProfile(), quadrant=True,
+                             order="weight", n_taps=200,
                              fold=1.0, max_area=600.0, ax=ax)
 ax.set_xlim(-6, 8)
 ax.set_ylim(-4, 10)

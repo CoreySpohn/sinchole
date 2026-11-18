@@ -40,7 +40,7 @@ from myst_nb import glue
 import eyepiece as ep
 import toy_coronagraph as tc
 from sinchole import viz
-from sinchole.kernel import stencil
+from sinchole.kernel import KernelProfile, stencil
 
 jax.config.update("jax_enable_x64", True)
 hwostyle.use("dark")
@@ -117,7 +117,8 @@ top = fig.add_subplot(gs[0, 0])
 main = fig.add_subplot(gs[1, 0], sharex=top)
 side = fig.add_subplot(gs[1, 1], sharey=main)
 
-viz.plot_stencil_2d(QUERY, grid, order="weight", n_taps=1024, max_area=450.0, ax=main)
+viz.plot_stencil_2d(QUERY, grid, profile=KernelProfile(), order="weight",
+                    n_taps=1024, max_area=450.0, ax=main)
 span_x = (node_x[0] - SPACING, node_x[-1] + SPACING)
 span_y = (node_y[0] - SPACING, node_y[-1] + SPACING)
 main.set_xlim(*span_x)
@@ -215,8 +216,8 @@ frames = np.concatenate([[0, 0], counts, np.full(6, 1024)])
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4.2), constrained_layout=True,
                                   gridspec_kw={"width_ratios": [1, 1.1]})
-stencil_view = viz.plot_stencil_2d(QUERY, grid, order="weight", n_taps=0, max_area=450.0,
-                                   ax=left)
+stencil_view = viz.plot_stencil_2d(QUERY, grid, profile=KernelProfile(), order="weight",
+                                   n_taps=0, max_area=450.0, ax=left)
 left.set_xlim(-5.5, 8.3)
 left.set_ylim(-5.5, 8.3)
 conv = ep.plot.convergence((tap_weight * tap_value)[by_size], running="sum", refs=final,

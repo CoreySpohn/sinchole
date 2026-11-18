@@ -46,6 +46,7 @@ from myst_nb import glue
 import eyepiece as ep
 import sinchole as sc
 from sinchole import viz
+from sinchole.kernel import KernelProfile
 import toy_coronagraph as tc
 
 jax.config.update("jax_enable_x64", True)
@@ -134,7 +135,8 @@ query = np.array([0.2, 3.0])
 fig, axes = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True, sharey=True)
 for ax, fold, title in ((axes[0], 0.0, "as the kernel places it"),
                         (axes[1], 1.0, "folded onto stored nodes")):
-    viz.plot_stencil_2d(query, lattice, quadrant=True, fold=fold, max_area=700.0, ax=ax)
+    viz.plot_stencil_2d(query, lattice, profile=KernelProfile(), quadrant=True,
+                        fold=fold, max_area=700.0, ax=ax)
     ax.axvline(0, color=SCENERY, lw=1, ls="--")
     ax.set_xlim(-6.5, 6.5)
     ax.set_ylim(-3.5, 9.5)
@@ -214,7 +216,8 @@ reads = sc.read_batch(reader, jnp.asarray(path), jnp.zeros(len(sx), dtype=jnp.in
 images = np.asarray(reads.intensity)
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9, 4), constrained_layout=True)
-stencil_view = viz.plot_stencil_2d(path[0], lattice, quadrant=True, max_area=250.0, ax=left)
+stencil_view = viz.plot_stencil_2d(path[0], lattice, profile=KernelProfile(), quadrant=True,
+                                   max_area=250.0, ax=left)
 ep.motion.carried_tag(left, "the stencil of a read")
 left.axvline(0, color=SCENERY, lw=1, ls="--")
 left.set_xlim(-9, 9)
@@ -247,7 +250,8 @@ mirrored nodes, is as clean as the other two.
 :tags: [hide-input]
 fig, axes = plt.subplots(2, 3, figsize=(9, 6), constrained_layout=True)
 for j, k in enumerate((10, 25, 41)):
-    viz.plot_stencil_2d(path[k], lattice, quadrant=True, fold=1.0, max_area=250.0,
+    viz.plot_stencil_2d(path[k], lattice, profile=KernelProfile(), quadrant=True,
+                        fold=1.0, max_area=250.0,
                         ax=axes[0, j])
     axes[0, j].axvline(0, color=SCENERY, lw=1, ls="--")
     axes[0, j].set_xlim(-9, 9)

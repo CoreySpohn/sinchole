@@ -1,26 +1,32 @@
-"""The 32-by-32 tap stencil of one read, drawn over the node lattice."""
+"""The two-axis tap stencil of one read, drawn over the node lattice."""
 
-import jax.numpy as jnp
 import numpy as np
 from matplotlib.colors import to_rgba
 
-from sinchole.kernel import stencil
 from sinchole.viz import _require
-from sinchole.viz._common import lattice_parts, query_xy, require_x64, single_ax
+from sinchole.viz._common import (
+    lattice_parts,
+    query_xy,
+    require_x64,
+    single_ax,
+    stencil_profile,
+    stencil_reader,
+)
 
 
 def plot_stencil_2d(
     query,
-    lattice,
+    source,
     *,
-    quadrant=False,
+    profile=None,
+    quadrant=None,
     order="spatial",
     n_taps=None,
     fold=0.0,
     max_area=120.0,
     ax=None,
 ):
-    """Draw the 1024 taps of a read, marker area proportional to the weight.
+    """Draw the taps of a read, marker area proportional to the weight.
 
     Each tap sits at its node, with area ``max_area * |w_x w_y|`` (a weight of
     one, a read exactly on a node, fills ``max_area``) and the color of its
@@ -30,13 +36,19 @@ def plot_stencil_2d(
 
     Args:
         query: Finite ``(x, y)`` source position.
-        lattice: PixelGrid or ``(origin_xy, spacing_xy, shape_yx)`` tuple.
-        quadrant: The lattice stores only the positive quadrant. Taps at
-            negative nodes are hollow (they exist only by symmetry) and mirrored
-            nodes are drawn as dim dots. Requires a zero lattice origin.
+        source: A sinchole reader, whose own stencil, lattice and reflection are
+            drawn; or a lattice, a PixelGrid or ``(origin_xy, spacing_xy,
+            shape_yx)`` tuple, drawn with ``profile``.
+        profile: Raw KernelProfile of a lattice source. A prefiltered profile
+            needs its reader, which holds the designed band.
+        quadrant: Lattice source only (a reader supplies it). The lattice stores
+            only the positive quadrant. Taps at negative nodes are hollow (they
+            exist only by symmetry) and mirrored nodes are drawn as dim dots.
+            Requires a zero lattice origin. Default False.
         order: ``"spatial"`` counts taps row by row, ``"weight"`` by decreasing
             weight magnitude, so the first taps counted are the ones that matter.
-        n_taps: Number of taps counted so far (0 to 1024); None counts all.
+        n_taps: Number of taps counted so far (0 to the stencil's tap count);
+            None counts all.
         fold: Quadrant only. 0 draws taps at their signed nodes, 1 draws taps
             at negative nodes on the stored node they read, 0 to 1 slides them.
         max_area: Marker area in points squared of a weight of one.
@@ -49,17 +61,29 @@ def plot_stencil_2d(
         the existing artists; an argument left None keeps its current value.
 
     Raises:
+        TypeError: ``profile`` is not a kernel profile.
         ValueError: Invalid lattice, query, order, counts, axes shape, or
-            disabled x64.
+            disabled x64; a profile with a reader or none with a lattice.
 
     Example::
 
+        from sinchole.kernel import KernelProfile
         from sinchole.viz import plot_stencil_2d
         result = plot_stencil_2d((1.0, 2.0), ((0, 0), (0.38, 0.38), (31, 31)),
-                                 quadrant=True, order="weight", n_taps=100)
+                                 profile=KernelProfile(), quadrant=True,
+                                 order="weight", n_taps=100)
         result.update((0.2, 2.0), n_taps=1024, fold=1.0)
     """
-    origin, spacing, shape = lattice_parts(lattice)
+    if hasattr(source, "stencil"):
+        if profile is not None or quadrant is not None:
+            raise ValueError("a reader supplies its own profile and reflection")
+        origin, spacing, shape, quadrant, at = stencil_reader(source)
+    else:
+        if profile is None:
+            raise ValueError("a lattice source needs a profile")
+        quadrant = bool(quadrant)
+        origin, spacing, shape = lattice_parts(source)
+        at = stencil_profile(profile, origin, spacing, shape[::-1], quadrant)
     if quadrant and np.any(origin != 0):
         raise ValueError("quadrant stencils require zero lattice origin")
     if order not in ("spatial", "weight"):
@@ -73,25 +97,18 @@ def plot_stencil_2d(
     if not 0.0 <= state["fold"] <= 1.0 or (state["fold"] > 0 and not quadrant):
         raise ValueError("fold must lie in [0, 1] and needs a quadrant lattice")
 
+    count = at(state["query"])[0].shape[1] ** 2
+
     def tap_table():
-        """Return positions, weights, validity and count rank of all 1024 taps."""
-        taps, weight = [], []
-        for axis in (0, 1):
-            t, w = stencil(
-                jnp.asarray([state["query"][axis]], dtype=jnp.float64),
-                float(origin[axis]),
-                float(spacing[axis]),
-            )
-            taps.append(np.asarray(t[0]))
-            weight.append(np.asarray(w[0]))
-        tx, ty = np.meshgrid(taps[0], taps[1])
+        """Return positions, weights, validity and count rank of every tap."""
+        nodes, weight, ok = at(state["query"])
+        tx, ty = np.meshgrid(nodes[0], nodes[1])
         weights = (weight[1][:, None] * weight[0][None, :]).ravel()
         tx, ty = tx.ravel(), ty.ravel()
-        rank = np.arange(1024)
+        rank = np.arange(count)
         if order == "weight":
-            rank[np.argsort(-np.abs(weights), kind="stable")] = np.arange(1024)
-        reach_x, reach_y = (np.abs(tx), np.abs(ty)) if quadrant else (tx, ty)
-        valid = (reach_x >= 0) & (reach_x < nx) & (reach_y >= 0) & (reach_y < ny)
+            rank[np.argsort(-np.abs(weights), kind="stable")] = np.arange(count)
+        valid = (ok[1][:, None] & ok[0][None, :]).ravel()
         f = state["fold"]
         fx = tx + f * (np.abs(tx) - tx) if quadrant else tx
         fy = ty + f * (np.abs(ty) - ty) if quadrant else ty
@@ -124,9 +141,9 @@ def plot_stencil_2d(
 
     def redraw():
         xy, weights, valid, rank = tap_table()
-        limit = 1024 if state["n"] is None else int(state["n"])
-        if not 0 <= limit <= 1024:
-            raise ValueError("n_taps must lie between 0 and 1024")
+        limit = count if state["n"] is None else int(state["n"])
+        if not 0 <= limit <= count:
+            raise ValueError(f"n_taps must lie between 0 and {count}")
         counted = rank < limit
         sign = np.where(weights >= 0, 0, 1)
         edge = np.array([to_rgba(positive), to_rgba(negative)])[sign]

@@ -28,9 +28,8 @@ from sinchole.kernel import (
     AbstractKernelProfile,
     KernelProfile,
     PrefilteredKernelProfile,
-    bump_stencil,
     flush_subnormal,
-    stencil,
+    read_stencil,
 )
 from sinchole.prefilter import (
     BUILD_CHUNK_BYTES,
@@ -256,6 +255,28 @@ class AbstractGridReader(AbstractImageReader):
     def _image(self, query, product):
         """Return the float64 image and per-axis weight l1 of a prevalidated query."""
 
+    def _design(self):
+        """Return the (beta, scale) of the kernel design, or None for raw reads."""
+        return None, None
+
+    def stencil(self, query):
+        """Return the Stencil of a prevalidated query, as ``read`` contracts it.
+
+        Nodes are signed indices, so a reflected quadrant table shows negative
+        nodes; ``valid`` marks the nodes the table serves.
+        """
+        beta, scale = self._design()
+        return read_stencil(
+            self.profile,
+            query,
+            origin_xy(self.grid.source),
+            spacing_xy(self.grid.source),
+            self.grid.source.shape[::-1],
+            self.grid.reflection.kind != "none",
+            beta,
+            scale,
+        )
+
     def _check_grid(self):
         if self.grid.stored != self._stored:
             raise ValueError(f"Reader requires a grid that stores {self._stored}")
@@ -374,9 +395,8 @@ class Interpolator(AbstractGridReader):
         self._check_grid()
 
     def _image(self, query, product):
-        taps, weight = stencil(
-            query, origin_xy(self.grid.source), spacing_xy(self.grid.source)
-        )
+        stencil = self.stencil(query)
+        taps, weight = stencil.nodes, stencil.weights
         kx, ky = taps[0], taps[1]
         wx, wy = weight[0], weight[1]
         ny, nx = self.products.pixels.shape
@@ -497,19 +517,12 @@ class PrefilteredReader(AbstractGridReader):
         """Coefficient table [product, sy, sx, row, column] in the storage dtype."""
         return self.grid.intensity
 
-    def stencil(self, query):
-        """Return signed int64 taps [2, taps] and bump weights of a valid query."""
-        return bump_stencil(
-            query,
-            origin_xy(self.grid.source),
-            spacing_xy(self.grid.source),
-            self.profile,
-            self._beta_xy,
-            self._scale_xy,
-        )
+    def _design(self):
+        return self._beta_xy, self._scale_xy
 
     def _image(self, query, product):
-        taps, weight = self.stencil(query)
+        stencil = self.stencil(query)
+        taps, weight = stencil.nodes, stencil.weights
         kx, ky = taps[0], taps[1]
         table = self.coefficients[product]
         if self.grid.reflection.kind == "none":

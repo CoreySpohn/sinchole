@@ -7,9 +7,14 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 
-from sinchole.kernel import KernelProfile, stencil, weights
+from sinchole.kernel import KernelProfile, weights
 from sinchole.viz import _require
-from sinchole.viz._common import require_x64, single_ax
+from sinchole.viz._common import (
+    require_x64,
+    single_ax,
+    stencil_profile,
+    stencil_reader,
+)
 
 
 def plot_kernel(profile=None, *, ax=None, show_ideal=True, line_kw=None):
@@ -69,47 +74,87 @@ def plot_kernel(profile=None, *, ax=None, show_ideal=True, line_kw=None):
 
 
 def plot_stencil(
-    query, *, origin=0.0, spacing=1.0, n_nodes=None, samples=None, ax=None, stem_kw=None
+    query,
+    *,
+    reader=None,
+    profile=None,
+    axis=0,
+    origin=None,
+    spacing=None,
+    n_nodes=None,
+    samples=None,
+    ax=None,
+    stem_kw=None,
 ):
-    """Draw 32 signed weights, missing stored taps, and optional node samples.
+    """Draw the signed weights of one axis of a read, and optional node samples.
+
+    The taps are those the profile reads with: pass a ``reader`` to draw its own
+    stencil on its own lattice, or a raw ``KernelProfile`` with the lattice
+    keywords. A prefiltered profile needs its reader, which holds the designed
+    band.
 
     Args:
-        query: Finite query position in the same units as origin and spacing.
-        origin: Position of stored node zero.
-        spacing: Positive node spacing.
-        n_nodes: Optional positive count of stored nodes indexed from zero.
+        query: Finite query position along ``axis``, in the units of the lattice.
+        reader: A sinchole reader. Supplies profile, origin, spacing, node count
+            and reflection; the lattice keywords must then be left None.
+        profile: KernelProfile to draw when there is no reader.
+        axis: 0 for the x axis of a reader's lattice, 1 for y.
+        origin: Position of stored node zero (profile only; default 0).
+        spacing: Positive node spacing (profile only; default 1).
+        n_nodes: Optional positive count of stored nodes indexed from zero
+            (profile only).
         samples: One-dimensional values indexed from zero, or a function of
             node position. Only existing nodes in the stencil view are shown.
         ax: Single axes; None creates a figure. Limits stay fixed on updates.
-        stem_kw: LineCollection overrides for the 32 stems.
+        stem_kw: LineCollection overrides for the stems.
 
     Returns:
         PlotResult whose ``update(query)`` moves existing artists. ``collection``
-        holds all 32 stems; its segments' endpoint y values are the current
+        holds one stem per tap; its segments' endpoint y values are the current
         weights. Recover taps as ``round((endpoint_x - origin) / spacing)``.
         ``line`` is the query line. ``scatter`` holds node ticks, tap endpoints
         (hollow outside storage), and sample dots when requested, in that order.
 
     Raises:
-        ValueError: Invalid geometry, samples, axes shape, or disabled x64.
+        TypeError: ``profile`` is not a kernel profile.
+        ValueError: Invalid geometry, samples, axes shape, or disabled x64;
+            neither or both of reader and profile; lattice keywords with a reader;
+            a prefiltered profile without a reader.
 
     Example::
 
+        from sinchole.kernel import KernelProfile
         from sinchole.viz import plot_stencil
-        result = plot_stencil(0.3, n_nodes=40)
+        result = plot_stencil(0.3, profile=KernelProfile(), n_nodes=40)
         result.update(0.5)
     """
+    if (reader is None) == (profile is None):
+        raise ValueError("pass exactly one of reader and profile")
+    if axis not in (0, 1):
+        raise ValueError("axis must be 0 or 1")
     query = float(np.asarray(query))
     sample_values = (
         None if samples is None or callable(samples) else np.asarray(samples)
     )
     ep = _require.eyepiece()
     require_x64()
-    origin, spacing = float(origin), float(spacing)
-    if not np.isfinite(origin) or not np.isfinite(spacing) or spacing <= 0:
-        raise ValueError("origin must be finite and spacing must be positive")
-    if n_nodes is not None and (int(n_nodes) != n_nodes or n_nodes < 1):
-        raise ValueError("n_nodes must be a positive integer")
+    if reader is not None:
+        if origin is not None or spacing is not None or n_nodes is not None:
+            raise ValueError("a reader supplies origin, spacing and n_nodes")
+        origins, spacings, shape, _, at = stencil_reader(reader)
+        origin, spacing = float(origins[axis]), float(spacings[axis])
+        n_nodes = int(shape[::-1][axis])
+    else:
+        origin = 0.0 if origin is None else float(origin)
+        spacing = 1.0 if spacing is None else float(spacing)
+        if not np.isfinite(origin) or not np.isfinite(spacing) or spacing <= 0:
+            raise ValueError("origin must be finite and spacing must be positive")
+        if n_nodes is not None and (int(n_nodes) != n_nodes or n_nodes < 1):
+            raise ValueError("n_nodes must be a positive integer")
+        size = None if n_nodes is None else np.full(2, int(n_nodes))
+        at = stencil_profile(
+            profile, np.full(2, origin), np.full(2, spacing), size, False
+        )
     if sample_values is not None and sample_values.ndim != 1:
         raise ValueError("samples must be a one-dimensional array")
     data_color = ep.style.role("data")
@@ -120,14 +165,9 @@ def plot_stencil(
         if not np.isfinite(point):
             raise ValueError("query must be finite")
         require_x64()
-        taps, weight = stencil(jnp.asarray([point], dtype=jnp.float64), origin, spacing)
-        taps, weight = np.asarray(taps[0]), np.asarray(weight[0])
+        found = at(np.full(2, point))
+        taps, weight, valid = (a[axis] for a in found)
         positions = origin + taps * spacing
-        valid = (
-            np.ones(32, dtype=bool)
-            if n_nodes is None
-            else (taps >= 0) & (taps < n_nodes)
-        )
         colors = np.array([to_rgba(data_color if v else scenery) for v in valid])
         faces = colors.copy()
         faces[~valid, 3] = 0.0
@@ -146,7 +186,7 @@ def plot_stencil(
             sample_points = np.column_stack((x, np.broadcast_to(y, x.shape)))
         segments = np.stack(
             (
-                np.column_stack((positions, np.zeros(32))),
+                np.column_stack((positions, np.zeros(len(taps)))),
                 np.column_stack((positions, weight)),
             ),
             axis=1,

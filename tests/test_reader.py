@@ -217,3 +217,25 @@ def test_negative_excursions_preserved(full_reader):
     reader = eqx.tree_at(lambda r: r.grid.intensity, full_reader, samples)
     image = compiled_read(reader, jnp.array([0.125, 0.0]), jnp.int32(0))
     assert bool(jnp.all(image.intensity < -0.1))
+
+
+@pytest.mark.parametrize("profile", ["raw", "prefiltered"])
+def test_stencil_weights_reproduce_the_read(profile, full_reader, tone_full):
+    """Fails if the stencil is a copy that drifts from the one a read contracts."""
+    reader = full_reader if profile == "raw" else tone_full["reader"]
+    queries = (
+        [0.137, -0.219] if profile == "raw" else [0.31, -0.17],
+        [-0.2, 0.3],
+    )
+    for query in queries:
+        q = jnp.asarray(query)
+        found = reader.stencil(q)
+        assert found.nodes.shape == found.weights.shape == found.valid.shape
+        assert found.nodes.shape == (2, reader.profile.taps)
+        assert bool(jnp.all(found.valid))
+        nodes, w = found.nodes, found.weights
+        samples = reader.grid.intensity[0, nodes[1, :, None], nodes[0, None, :]]
+        value = jnp.einsum("j,i,jirc->rc", w[1], w[0], samples.astype(jnp.float64))
+        np.testing.assert_allclose(
+            value, reader.read(q, jnp.int32(0)).intensity, rtol=1e-12, atol=1e-14
+        )
