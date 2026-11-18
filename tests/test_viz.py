@@ -287,6 +287,20 @@ def test_residual_local_peak_and_update():
     assert children == list(result.ax.get_children())
 
 
+def test_residual_local_peak_excludes_pixel_just_outside_source_disk():
+    """Fails if float32 rounding includes a sample outside the source disk."""
+    pixels = PixelGrid.regular(
+        (1, 2), 1, "lod", center=(-1e-8, 0), frame=Frame(500, 6, "circumscribed")
+    )
+    truth = np.array([[2.0, 100.0]])
+    with jax.enable_x64(False):
+        result = viz.plot_residual(
+            truth + 1, truth, pixels=pixels, source_xy_lod=(0, 0)
+        )
+    np.testing.assert_allclose(result.artists["image"].get_array(), 0.5)
+    plt.close(result.fig)
+
+
 def test_residual_global_and_fixed_peak():
     truth = np.arange(1.0, 13.0).reshape(3, 4)
     for peak in (None, 2.0):

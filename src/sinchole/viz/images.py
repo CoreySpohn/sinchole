@@ -2,7 +2,9 @@
 
 from dataclasses import replace
 
+import jax
 import numpy as np
+from hwoutils.grids import PixelGrid
 from matplotlib.patches import Circle
 from matplotlib.ticker import FuncFormatter
 
@@ -18,37 +20,17 @@ def _image(value):
     return data
 
 
-def _geometry(shape, pixscale_lod, pixels):
-    """Resolve pixel centers and their half-pitch outer edges."""
+def _display_grid(shape, pixscale_lod, pixels):
+    """Resolve a plot grid from its metadata or a declared display scale."""
     if pixels is None:
         if pixscale_lod is None or not np.isfinite(pixscale_lod) or pixscale_lod <= 0:
             raise ValueError("pass positive pixscale_lod or a PixelGrid via pixels")
-        pitch = np.full(2, float(pixscale_lod))
-        center = (np.asarray(shape[::-1]) - 1) / 2
-    else:
-        if pixscale_lod is not None:
-            raise ValueError("pass pixels or pixscale_lod, not both")
-        basis = np.asarray(pixels.basis, dtype=float)
-        center = np.asarray((pixels.center_x, pixels.center_y), dtype=float)
-        if tuple(pixels.shape) != shape:
-            raise ValueError("pixels.shape must match the image shape")
-        if (
-            not np.all(np.isfinite(basis))
-            or not np.all(np.isfinite(center))
-            or np.any(basis != np.diag(np.diag(basis)))
-            or np.any(np.diag(basis) <= 0)
-        ):
-            raise ValueError("pixels requires a positive diagonal basis")
-        pitch = np.diag(basis)
-    x = (np.arange(shape[1]) - center[0]) * pitch[0]
-    y = (np.arange(shape[0]) - center[1]) * pitch[1]
-    extent = (
-        x[0] - pitch[0] / 2,
-        x[-1] + pitch[0] / 2,
-        y[0] - pitch[1] / 2,
-        y[-1] + pitch[1] / 2,
-    )
-    return x, y, extent
+        return PixelGrid.regular(shape, pixscale_lod, "pixel")
+    if pixscale_lod is not None:
+        raise ValueError("pass pixels or pixscale_lod, not both")
+    if pixels.shape != shape:
+        raise ValueError("pixels.shape must match the image shape")
+    return pixels
 
 
 def plot_read(
@@ -68,7 +50,7 @@ def plot_read(
     Args:
         read: ImageRead or nonempty two-dimensional array.
         pixscale_lod: Positive lambda/D per pixel, centered on zero.
-        pixels: Alternative PixelGrid with a positive diagonal basis and the
+        pixels: Alternative PixelGrid with a diagonal basis and the
             image's shape; preserves its possibly off-center pixel origin.
         vmin: Lower display limit of the logarithmic norm; None uses nine
             decades below ``vmax`` (or below the brightest pixel).
@@ -90,13 +72,14 @@ def plot_read(
     Example::
 
         import numpy as np
+    from hwoutils.grids import PixelGrid
         from sinchole.viz import plot_read
         result = plot_read(np.ones((8, 10)), pixscale_lod=0.25)
         result.update(np.full((8, 10), 2.0))
     """
     data = _image(read)
     ep = _require.eyepiece()
-    _, _, extent = _geometry(data.shape, pixscale_lod, pixels)
+    grid = _display_grid(data.shape, pixscale_lod, pixels)
     ax = single_ax(ax)
     if vmin is None:
         # A coronagraph image spans many decades; nine below the brightest
@@ -106,7 +89,7 @@ def plot_read(
     result = ep.plot.imshow_log(
         data,
         ax=ax,
-        extent=extent,
+        grid=grid,
         vmin=vmin,
         vmax=vmax,
         colorbar=colorbar,
@@ -146,7 +129,7 @@ def plot_residual(
             inside radius one lambda/D of the source, or globally without one.
         source_xy_lod: Optional source pair; the radius-one boundary is inclusive.
         pixscale_lod: Positive centered pixel scale in lambda/D.
-        pixels: Alternative PixelGrid with a positive diagonal basis.
+        pixels: Alternative PixelGrid with a diagonal basis.
         scale: ``"signed"`` draws the signed error on a symmetric diverging
             scale; ``"magnitude"`` draws its absolute value on a logarithmic
             scale spanning four decades below the maximum, which shows the
@@ -171,6 +154,7 @@ def plot_residual(
     Example::
 
         import numpy as np
+    from hwoutils.grids import PixelGrid
         from sinchole.viz import plot_residual
         truth = np.ones((8, 10))
         result = plot_residual(truth + 1e-6, truth, pixscale_lod=0.25)
@@ -181,7 +165,10 @@ def plot_residual(
     data, truth_data = _image(read), _image(truth)
     source = None if source_xy_lod is None else query_xy(source_xy_lod)
     ep = _require.eyepiece()
-    x, y, extent = _geometry(data.shape, pixscale_lod, pixels)
+    grid = _display_grid(data.shape, pixscale_lod, pixels)
+    # Keep source-disk membership in the static grid's host precision.
+    with jax.enable_x64():
+        x, y = map(np.asarray, grid.coordinates())
 
     def resolve(values, reference, point):
         if values.shape != data.shape or reference.shape != data.shape:
@@ -191,7 +178,7 @@ def plot_residual(
         elif point is None:
             peak = float(np.max(reference))
         else:
-            inside = (x[None, :] - point[0]) ** 2 + (y[:, None] - point[1]) ** 2 <= 1.0
+            inside = (x - point[0]) ** 2 + (y - point[1]) ** 2 <= 1.0
             if not np.any(inside):
                 raise ValueError("no pixel centers within radius 1 lambda/D of source")
             peak = float(np.max(reference[inside]))
@@ -208,7 +195,7 @@ def plot_residual(
         result = ep.plot.imshow_diverging(
             residual,
             ax=ax,
-            extent=extent,
+            grid=grid,
             vlim=top,
             imshow_kw=imshow_kw,
             cbar_kw=cbar_kw,
@@ -217,7 +204,7 @@ def plot_residual(
         result = ep.plot.imshow_log(
             np.abs(residual),
             ax=ax,
-            extent=extent,
+            grid=grid,
             vmin=top * 1e-4,
             vmax=top,
             imshow_kw=imshow_kw,
