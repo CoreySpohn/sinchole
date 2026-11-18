@@ -288,12 +288,11 @@ repaired after the fact. The toy images of these pages are point samples, so
 they exercise admission and not the pixel-integral contract that this step
 recommends for a real delivery.
 
-The default for a delivery is a pixel integral normalized to the photons that
+For a pixel-integrated delivery, normalize to the photons that
 enter the aperture: each stored value is the fraction of incident photons that
 land on that pixel (`sample_kind: integral`, `normalization.kind:
 incident_photon`, [pixel measure][schema-pixel] and [normalization][schema-norm]).
-A propagator that follows the standard Fourier convention gives this directly,
-because of Parseval's relation.
+The Fourier normalization can be checked with Parseval's relation.
 
 :::{admonition} Known result: Parseval's relation
 :class: note
@@ -356,8 +355,8 @@ accepted reference is `unocculted_peak`, with a positive `photon_conversion`
 per plane that is the same for every source position. A conversion that
 varies with position breaks the band limit
 ({doc}`../theory/band-limits`). Never normalize an image to its own sum or
-peak. Point samples are a sinchole option, but the yippy format of version
-0.1 accepts only `integral` and `mean`, so a delivery must be one of those.
+peak. For a point-sampled delivery, store the centre density times the cell area and
+declare `sample_kind: point`. The reader recovers the centre density.
 
 ### What does the diameter convention change?
 
@@ -412,9 +411,9 @@ and $L$.
 Every image sits in one frame with the star at $((n_x-1)/2,\,(n_y-1)/2)$, and
 a fiducial source at a known position must land where the sky puts it, because
 admission tests that the images agree with each other and a consistent error
-agrees with itself. Each pixel holds a pixel integral normalized to incident
-photons, not a point sample, and supersampling in the propagator is how a
-point-sampling propagator gets there. The next page handles the filter and the
+agrees with itself. The pixel response and sampling declaration determine whether to
+store a centre sample, a mean or an integral. Supersampling in the propagator
+approximates the latter two for a uniform square pixel. The next page handles the filter and the
 symmetry argument.
 
 Next: {doc}`recipe-band-symmetry`.

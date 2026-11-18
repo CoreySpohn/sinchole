@@ -147,9 +147,8 @@ declaration states. The keys, columns and headers are defined on yippy's
   - byte ceilings the reader may not exceed
 ```
 
-Three version 0.1 limits follow from that mapping. A yippy delivery states
-`integral` or `mean` for the pixel measure, so `point_density` is available
-only to a caller of sinchole directly. A band-mean wavelength kind is not
+A yippy delivery declares `point`, `integral` or `mean` for its detector samples.
+A band-mean wavelength kind is not
 accepted from a delivery, whose planes are monochromatic. And evidence code
 2, external evidence, is rejected by the yippy parser, so a designer declares
 each premise with code 1 and a `source_id` that names the declaration.
@@ -219,10 +218,10 @@ as given.
 
 `PixelGrid`
 : Detector shape, center in pixels, pixel basis in $\lambda_0/D$ (square and
-  axis-aligned for quadrant grids) and what a pixel value measures:
-  `pixel_integral` (photons collected by the pixel), `pixel_mean_density`
-  (the mean over the pixel, per unit area) or `point_density` (a sample at
-  the pixel center). The reader returns values in the same measure. A quadrant
+  axis-aligned for quadrant grids). The product carries a hwoutils `Measure`.
+  A delivery of centre samples decodes to `Measure.density("grid")`. Cell
+  integrals and means decode to `Measure.integral()`. The reader preserves
+  the declared measure. A quadrant
   needs its center at `((nx - 1)/2, (ny - 1)/2)`, and any other center is
   refused with `FRAME_UNSUPPORTED`.
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
-from hwoutils.grids import Frame, PixelGrid
+from hwoutils.grids import Frame, Measure, PixelGrid
 
 import sinchole as sc
 
@@ -145,7 +145,7 @@ def products_for(toy, *, identity="toy-lyot"):
         optical_id="toy",
         spectral_weight_id="mono",
         identity=identity,
-        measure="point_density",
+        measure=Measure.density("grid"),
     )
 
 

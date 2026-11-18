@@ -7,7 +7,7 @@ from dataclasses import replace
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from hwoutils.grids import PixelGrid
+from hwoutils.grids import Measure, PixelGrid
 
 from sinchole._types import F64, I32, Boolean, check_array, check_static
 from sinchole.admission import (
@@ -81,7 +81,7 @@ class Products(eqx.Module):
     optical_id: str = eqx.field(static=True)
     spectral_weight_id: str = eqx.field(static=True)
     identity: str = eqx.field(static=True)
-    measure: str = eqx.field(static=True, default="per_pixel")
+    measure: Measure = eqx.field(static=True, default=Measure.integral())
 
     @property
     def frame(self):
@@ -91,6 +91,10 @@ class Products(eqx.Module):
     def __check_init__(self):
         """Validate the declared structure before numerical use."""
         check_static(self)
+        if not isinstance(self.measure, Measure):
+            raise TypeError("products require a Measure")
+        if self.measure.kind == "density":
+            self.pixels.cell_area(self.measure.area)
         if self.pixels.unit != "lod" or self.pixels.frame is None:
             raise ValueError("Products require a lod grid with a frame")
         count = self.wavelength_nm.size
@@ -270,7 +274,6 @@ def _metadata_reasons(products, reflection):
             jnp.all(jnp.isfinite(jnp.asarray((pixels.center_x, pixels.center_y))))
         )
         or not orthogonal
-        or products.measure not in ("per_pixel", "per_unit_area", "point_density")
     ):
         reasons |= Reason.FRAME_UNSUPPORTED
     if reflection.kind == "two_axis_pixel_flip_v1":
