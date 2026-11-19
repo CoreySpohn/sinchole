@@ -128,7 +128,9 @@ jax.config.update("jax_enable_x64", True)
 from yippy import open_yip
 
 coro = open_yip("path/to/delivery").prepare(interpolation="sinc")
-image, valid = coro.source_psfs(None, [4.0], [5.5], grid=None)  # planet at (4.0, 5.5) lambda0/D
+image, valid = coro.source_psfs(
+    None, [4.0], [5.5], grid=None
+)  # planet at (4.0, 5.5) lambda0/D
 print(coro.interpolation_info.effective)  # "sinc"
 print(coro.interpolation_info.receipt_id)  # the admission receipt identity
 ```

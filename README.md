@@ -58,7 +58,12 @@ products = sc.Products(
     spectral_weight_id="mono",
     identity="example-product",
 )
-lattice = sc.source_grid(jnp.array([-5.0, -5.0]), jnp.array([0.25, 0.25]), (41, 41), Frame(500.0, 6.0, "circumscribed"))
+lattice = sc.source_grid(
+    jnp.array([-5.0, -5.0]),
+    jnp.array([0.25, 0.25]),
+    (41, 41),
+    Frame(500.0, 6.0, "circumscribed"),
+)
 iy, ix = jnp.indices(lattice.shape, dtype=jnp.int32)
 indices = jnp.stack((ix.ravel(), iy.ravel()), axis=1)
 offsets = origin_xy(lattice) + indices * spacing_xy(lattice)
